@@ -1,0 +1,90 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <H5Cpp.h>
+
+using namespace std;
+using namespace H5;
+
+typedef vector<vector<vector<double>>> triDvec;
+typedef vector<vector<double>> twoDvec;
+typedef vector<double> oneDvec;
+
+
+twoDvec load_field(string file_path , string group_path)
+{
+    // Open HDF5 file handle, read only
+    H5File fp(file_path,H5F_ACC_RDONLY);
+
+    // access the required dataset by path name
+    DataSet dset = fp.openDataSet(group_path);
+
+    // get the dataspace
+    DataSpace dspace = dset.getSpace();
+
+    // get the dataset type class
+    H5T_class_t type_class = dset.getTypeClass();
+
+    // get the size of the dataset
+    hsize_t rank;
+    hsize_t dims[2];
+    rank = dspace.getSimpleExtentDims(dims, NULL); // rank = 1
+    cout<<"Datasize: "<<dims[0]<<endl; // this is the correct number of values
+
+    // Define the memory dataspace
+    hsize_t dimsm[1];
+    dimsm[0] = dims[0];
+    DataSpace memspace (1,dimsm);
+
+
+    // create a vector the same size as the dataset
+    oneDvec data;
+    data.resize(dims[0]);
+    cout<<"Vectsize: "<<data.size()<<endl;
+
+    //Initializing the data_out in memory
+    double *data_out = (double *) malloc(data.size()*sizeof(double));
+    for (int i=0;i<data.size();i++)
+      {
+        data_out[i]=0;
+      }
+    
+    
+    // pass pointer to the array (or vector) to read function, along with the data type and space.
+    dset.read(data_out, PredType::NATIVE_DOUBLE, memspace, dspace); // 
+    
+
+    int c = 4000;
+    vector<vector<double>> u;
+    vector<double> dumb;
+    for(int i = 0  ; i < 400 ; i++){
+        dumb.clear();
+        for(int j = 0; j < 4000 ; j++){
+                int index = i*c + j;
+                double value = data_out[index];
+                dumb.push_back(value);
+            }
+        u.push_back(dumb);
+    }
+    
+    
+    // close the HDF5 file
+    fp.close();
+    free(data_out); data_out = NULL;
+
+
+
+    return u;
+}
+
+
+int main()
+{
+
+  twoDvec u = load_field("st_v3_u_A_No1.hdf5" , "/flowData/uxs");
+  //twoDvec u = load_field("st_data_v3_No11.hdf5" , "/flowData/uxs");
+
+  cout << u[0][0] << endl;
+
+  return 0;
+}

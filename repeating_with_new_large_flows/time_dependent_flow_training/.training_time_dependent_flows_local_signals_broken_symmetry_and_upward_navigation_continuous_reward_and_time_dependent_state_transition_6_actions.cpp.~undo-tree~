@@ -1,0 +1,92 @@
+(undo-tree-save-format-version . 1)
+"2d6b047699ba4c60aff0d3dcf5c3a3c9138a364e"
+[nil nil nil nil (25259 11000 80112 845000) 0 nil]
+([nil nil ((#("3" 0 1 (fontified t)) . 5166) (t 25259 10837 819453 0)) nil (25259 11000 80111 719000) 0 nil])
+([nil nil ((5166 . 5167)) nil (25259 11000 80108 3000) 0 nil])
+([nil nil ((#("." 0 1 (fontified t)) . 19061) (#("1" 0 1 (fontified t)) . 19061) (#("-" 0 1 (fontified t)) . 19061) (t 25259 11000 85728 400000)) nil (25259 11010 67765 320000) 0 nil])
+([nil nil ((19061 . 19063)) nil (25259 11010 67761 748000) 0 nil])
+([nil nil ((#("case 2:
+    K = 1.0;
+    break;" 0 4 (fontified t face font-lock-keyword-face) 4 6 (fontified t) 6 7 (fontified t c-type c-decl-end) 7 25 (fontified t) 25 30 (fontified t face font-lock-keyword-face) 30 31 (fontified t)) . 19113) (undo-tree-id4 . -31) (undo-tree-id5 . -31) 19144 (t 25259 11010 70934 600000)) nil (25259 11025 936681 920000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 19143 . 19144) (nil fontified nil 19143 . 19144) (nil fontified nil 19138 . 19143) (nil fontified nil 19120 . 19138) (nil fontified nil 19119 . 19120) (nil fontified nil 19117 . 19119) (nil fontified nil 19113 . 19117) (19113 . 19144)) nil (25259 11025 936679 931000) 0 nil])
+([nil nil ((19144 . 19149)) nil (25259 11025 936679 12000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 19179 . 19180) (nil fontified nil 19179 . 19180) (nil fontified nil 19174 . 19179) (nil fontified nil 19156 . 19174) (nil fontified nil 19155 . 19156) (nil fontified nil 19153 . 19155) (nil fontified nil 19149 . 19153) (19149 . 19180)) nil (25259 11025 936678 442000) 0 nil])
+([nil nil ((19180 . 19185)) nil (25259 11025 936676 995000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 19215 . 19216) (nil fontified nil 19215 . 19216) (nil fontified nil 19210 . 19215) (nil fontified nil 19192 . 19210) (nil fontified nil 19191 . 19192) (nil fontified nil 19189 . 19191) (nil fontified nil 19185 . 19189) (19185 . 19216)) nil (25259 11025 936676 154000) 0 nil])
+([nil nil ((19179 . 19181) (#("    " 0 4 (fontified t)) . 19179) (undo-tree-id0 . -4) (undo-tree-id1 . -4) (19145 . 19147) (#("    " 0 4 (fontified t)) . 19145) (undo-tree-id2 . -4) (undo-tree-id3 . -4) 19155) nil (25259 11025 936673 54000) 0 nil])
+([nil nil ((#("2" 0 1 (fontified t)) . 19152) (t 25259 11025 940853 200000)) nil (25259 11043 910911 707000) 0 nil])
+([nil nil ((19152 . 19153)) nil (25259 11043 910911 103000) 0 nil])
+([nil nil ((#("2" 0 1 (fontified t)) . -19186) (undo-tree-id8 . -1) 19187) nil (25259 11043 910910 385000) 0 nil])
+([nil nil ((19186 . 19187)) nil (25259 11043 910909 94000) 0 nil])
+([nil nil ((19212 . 19217)) nil (25259 11043 910908 315000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 19247 . 19248) (nil fontified nil 19247 . 19248) (nil fontified nil 19242 . 19247) (nil fontified nil 19224 . 19242) (nil fontified nil 19223 . 19224) (nil fontified nil 19221 . 19223) (nil fontified nil 19217 . 19221) (19217 . 19248)) nil (25259 11043 910907 815000) 0 nil])
+([nil nil ((19213 . 19215) (#("    " 0 4 (fontified t)) . 19213) (undo-tree-id6 . -4) (undo-tree-id7 . -4) 19223) nil (25259 11043 910905 974000) 0 nil])
+([nil nil ((#("2" 0 1 (fontified t)) . 19220)) nil (25259 11043 910897 605000) 0 nil])
+([nil nil ((19220 . 19221)) nil (25259 11043 910894 673000) 0 nil])
+([nil nil ((19074 . 19076) (t 25259 11043 914884 200000)) nil (25259 11051 814083 647000) 0 nil])
+([nil nil ((#("x" 0 1 (fontified t)) . -19074) (undo-tree-id9 . -1) (#("s" 0 1 (fontified t)) . -19075) (undo-tree-id10 . -1) 19076) nil (25259 11051 814080 788000) 0 nil])
+([nil nil ((#("0" 0 1 (fontified t)) . 19095) (t 25259 11051 818373 300000)) nil (25259 11073 138679 584000) 0 nil])
+([nil nil ((19095 . 19097)) nil (25259 11073 138676 347000) 0 nil])
+([nil nil ((#("1" 0 1 (fontified t)) . 19164) (t 25259 11073 142879 100000)) nil (25259 11078 672110 164000) 0 nil])
+([nil nil ((19164 . 19165)) nil (25259 11078 672109 586000) 0 nil])
+([nil nil ((19198 . 19199)) nil (25259 11078 672106 560000) 0 nil])
+([nil nil ((#("  double K;
+  switch(action){
+  case 0:
+    K = 0.0;
+    break;
+  case 1:
+    K = -1.0;
+    break;
+  case 2:
+    K = 1.0;
+    break;
+  case 3:
+    K = 0.0;
+    break;
+  case 4:
+    K = -1.0;
+    break;
+  case 5:
+    K = 1.0;
+    break;
+  }
+  return K;" 0 2 (fontified t) 2 7 (fontified t face font-lock-type-face) 7 8 (fontified t c-type c-decl-id-start face font-lock-type-face) 8 9 (fontified t) 9 10 (fontified t face font-lock-variable-name-face) 10 14 (fontified t) 14 20 (fontified t face font-lock-keyword-face) 20 32 (fontified t) 32 36 (fontified t face font-lock-keyword-face) 36 38 (fontified t) 38 39 (fontified t) 39 40 (fontified t) 40 48 (fontified t) 48 49 (fontified t) 49 50 (fontified t) 50 53 (fontified t) 53 57 (fontified t) 57 61 (fontified t face font-lock-keyword-face) 61 62 (fontified t face font-lock-keyword-face) 62 64 (fontified t) 64 66 (fontified t) 66 70 (fontified t face font-lock-keyword-face) 70 72 (fontified t) 72 73 (fontified t) 73 74 (fontified t) 74 82 (fontified t) 82 83 (fontified t) 83 84 (fontified t) 84 88 (fontified t) 88 92 (fontified t) 92 97 (fontified t face font-lock-keyword-face) 97 99 (fontified t) 99 101 (fontified t) 101 105 (fontified t face font-lock-keyword-face) 105 107 (fontified t) 107 108 (fontified t c-type c-decl-end) 108 122 (fontified t) 122 126 (fontified t) 126 131 (fontified t face font-lock-keyword-face) 131 132 (rear-nonsticky t fontified t) 132 133 (fontified t) 133 135 (fontified t) 135 139 (fontified t face font-lock-keyword-face) 139 140 (fontified t) 140 141 (fontified t) 141 142 (fontified t) 142 143 (fontified t) 143 151 (fontified t) 151 152 (fontified t) 152 156 (fontified t) 156 160 (fontified t) 160 165 (fontified t face font-lock-keyword-face) 165 166 (rear-nonsticky t fontified t) 166 167 (fontified t) 167 169 (fontified t) 169 173 (fontified t face font-lock-keyword-face) 173 174 (fontified t) 174 175 (fontified t) 175 176 (fontified t) 176 177 (fontified t) 177 185 (fontified t) 185 186 (fontified t) 186 191 (fontified t) 191 195 (fontified t) 195 200 (fontified t face font-lock-keyword-face) 200 201 (rear-nonsticky t fontified t) 201 202 (fontified t) 202 204 (fontified t) 204 208 (fontified t face font-lock-keyword-face) 208 209 (fontified t) 209 210 (fontified t) 210 211 (fontified t c-type c-decl-end) 211 212 (fontified t) 212 229 (fontified t) 229 234 (fontified t face font-lock-keyword-face) 234 235 (rear-nonsticky t fontified t) 235 236 (fontified t) 236 242 (fontified t) 242 248 (fontified t face font-lock-keyword-face) 248 251 (fontified t)) . 19013) (undo-tree-id14 . -251) (undo-tree-id15 . -101) (undo-tree-id16 . -101) (undo-tree-id17 . -133) (undo-tree-id18 . -167) (undo-tree-id19 . -201) (undo-tree-id20 . -202) (undo-tree-id21 . -235) (undo-tree-id22 . -251) (undo-tree-id23 . -251) (t 25259 11078 675431 100000)) nil (25259 11096 501372 687000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 19263 . 19264) (nil fontified nil 19261 . 19264) (nil fontified nil 19255 . 19261) (nil fontified nil 19249 . 19255) (nil fontified nil 19248 . 19249) (nil fontified nil 19247 . 19248) (nil fontified nil 19242 . 19247) (nil fontified nil 19225 . 19242) (nil fontified nil 19224 . 19225) (nil fontified nil 19223 . 19224) (nil fontified nil 19222 . 19223) (nil fontified nil 19221 . 19222) (nil fontified nil 19217 . 19221) (nil fontified nil 19215 . 19217) (nil fontified nil 19214 . 19215) (nil fontified nil 19213 . 19214) (nil fontified nil 19208 . 19213) (nil fontified nil 19204 . 19208) (nil fontified nil 19199 . 19204) (nil fontified nil 19198 . 19199) (nil fontified nil 19190 . 19198) (nil fontified nil 19189 . 19190) (nil fontified nil 19188 . 19189) (nil fontified nil 19187 . 19188) (nil fontified nil 19186 . 19187) (nil fontified nil 19182 . 19186) (nil fontified nil 19180 . 19182) (nil fontified nil 19179 . 19180) (nil fontified nil 19178 . 19179) (nil fontified nil 19173 . 19178) (nil fontified nil 19169 . 19173) (nil fontified nil 19165 . 19169) (nil fontified nil 19164 . 19165) (nil fontified nil 19156 . 19164) (nil fontified nil 19155 . 19156) (nil fontified nil 19154 . 19155) (nil fontified nil 19153 . 19154) (nil fontified nil 19152 . 19153) (nil fontified nil 19148 . 19152) (nil fontified nil 19146 . 19148) (nil fontified nil 19145 . 19146) (nil fontified nil 19144 . 19145) (nil fontified nil 19139 . 19144) (nil fontified nil 19135 . 19139) (nil fontified nil 19121 . 19135) (nil fontified nil 19120 . 19121) (nil fontified nil 19118 . 19120) (nil fontified nil 19114 . 19118) (nil fontified nil 19112 . 19114) (nil fontified nil 19110 . 19112) (nil fontified nil 19105 . 19110) (nil fontified nil 19101 . 19105) (nil fontified nil 19097 . 19101) (nil fontified nil 19096 . 19097) (nil fontified nil 19095 . 19096) (nil fontified nil 19087 . 19095) (nil fontified nil 19086 . 19087) (nil fontified nil 19085 . 19086) (nil fontified nil 19083 . 19085) (nil fontified nil 19079 . 19083) (nil fontified nil 19077 . 19079) (nil fontified nil 19075 . 19077) (nil fontified nil 19074 . 19075) (nil fontified nil 19070 . 19074) (nil fontified nil 19066 . 19070) (nil fontified nil 19063 . 19066) (nil fontified nil 19062 . 19063) (nil fontified nil 19061 . 19062) (nil fontified nil 19053 . 19061) (nil fontified nil 19052 . 19053) (nil fontified nil 19051 . 19052) (nil fontified nil 19049 . 19051) (nil fontified nil 19045 . 19049) (nil fontified nil 19033 . 19045) (nil fontified nil 19027 . 19033) (nil fontified nil 19023 . 19027) (nil fontified nil 19022 . 19023) (nil fontified nil 19021 . 19022) (nil fontified nil 19020 . 19021) (nil fontified nil 19015 . 19020) (nil fontified nil 19013 . 19015) (19013 . 19264)) nil (25259 11096 501366 756000) 0 nil])
+([nil nil ((#("  double v;
+  if(action == 1){v = 0.0;}
+  else{v = vs;}
+  return v;" 0 2 (fontified t) 2 7 (fontified t face font-lock-type-face) 7 8 (fontified t c-type c-decl-id-start face font-lock-type-face) 8 9 (fontified t) 9 10 (fontified t face font-lock-variable-name-face) 10 14 (fontified t) 14 16 (fontified t face font-lock-keyword-face) 16 42 (fontified t) 42 46 (fontified t face font-lock-keyword-face) 46 58 (fontified t) 58 64 (fontified t face font-lock-keyword-face) 64 67 (fontified t)) . -19298) (undo-tree-id11 . -67) (undo-tree-id12 . -67) (undo-tree-id13 . -56) 19365) nil (25259 11096 501361 939000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 19548 . 19549) (nil fontified nil 19546 . 19549) (nil fontified nil 19540 . 19546) (nil fontified nil 19534 . 19540) (nil fontified nil 19533 . 19534) (nil fontified nil 19532 . 19533) (nil fontified nil 19527 . 19532) (nil fontified nil 19510 . 19527) (nil fontified nil 19509 . 19510) (nil fontified nil 19508 . 19509) (nil fontified nil 19507 . 19508) (nil fontified nil 19506 . 19507) (nil fontified nil 19502 . 19506) (nil fontified nil 19500 . 19502) (nil fontified nil 19499 . 19500) (nil fontified nil 19498 . 19499) (nil fontified nil 19493 . 19498) (nil fontified nil 19489 . 19493) (nil fontified nil 19484 . 19489) (nil fontified nil 19483 . 19484) (nil fontified nil 19475 . 19483) (nil fontified nil 19474 . 19475) (nil fontified nil 19473 . 19474) (nil fontified nil 19472 . 19473) (nil fontified nil 19471 . 19472) (nil fontified nil 19467 . 19471) (nil fontified nil 19465 . 19467) (nil fontified nil 19464 . 19465) (nil fontified nil 19463 . 19464) (nil fontified nil 19458 . 19463) (nil fontified nil 19454 . 19458) (nil fontified nil 19450 . 19454) (nil fontified nil 19449 . 19450) (nil fontified nil 19441 . 19449) (nil fontified nil 19440 . 19441) (nil fontified nil 19439 . 19440) (nil fontified nil 19438 . 19439) (nil fontified nil 19437 . 19438) (nil fontified nil 19433 . 19437) (nil fontified nil 19431 . 19433) (nil fontified nil 19430 . 19431) (nil fontified nil 19429 . 19430) (nil fontified nil 19424 . 19429) (nil fontified nil 19420 . 19424) (nil fontified nil 19406 . 19420) (nil fontified nil 19405 . 19406) (nil fontified nil 19403 . 19405) (nil fontified nil 19399 . 19403) (nil fontified nil 19397 . 19399) (nil fontified nil 19395 . 19397) (nil fontified nil 19390 . 19395) (nil fontified nil 19386 . 19390) (nil fontified nil 19382 . 19386) (nil fontified nil 19381 . 19382) (nil fontified nil 19380 . 19381) (nil fontified nil 19372 . 19380) (nil fontified nil 19371 . 19372) (nil fontified nil 19370 . 19371) (nil fontified nil 19368 . 19370) (nil fontified nil 19364 . 19368) (nil fontified nil 19362 . 19364) (nil fontified nil 19360 . 19362) (nil fontified nil 19359 . 19360) (nil fontified nil 19355 . 19359) (nil fontified nil 19351 . 19355) (nil fontified nil 19348 . 19351) (nil fontified nil 19347 . 19348) (nil fontified nil 19346 . 19347) (nil fontified nil 19338 . 19346) (nil fontified nil 19337 . 19338) (nil fontified nil 19336 . 19337) (nil fontified nil 19334 . 19336) (nil fontified nil 19330 . 19334) (nil fontified nil 19318 . 19330) (nil fontified nil 19312 . 19318) (nil fontified nil 19308 . 19312) (nil fontified nil 19307 . 19308) (nil fontified nil 19306 . 19307) (nil fontified nil 19305 . 19306) (nil fontified nil 19300 . 19305) (nil fontified nil 19298 . 19300) (19298 . 19549)) nil (25259 11096 501349 451000) 0 nil])
+([nil nil ((#("K" 0 1 (fontified t face font-lock-variable-name-face)) . -19307) (undo-tree-id33 . -1) 19308 (t 25259 11096 505745 500000)) nil (25259 11129 526703 404000) 0 nil])
+([nil nil ((19307 . 19308)) nil (25259 11129 526702 527000) 0 nil])
+([nil nil ((#("K" 0 1 (fontified t)) . -19547) (undo-tree-id32 . -1) 19548) nil (25259 11129 526702 135000) 0 nil])
+([nil nil ((19547 . 19548)) nil (25259 11129 526701 387000) 0 nil])
+([nil nil ((#("K" 0 1 (fontified t)) . -19342) (undo-tree-id31 . -1) 19343) nil (25259 11129 526701 61000) 0 nil])
+([nil nil ((19342 . 19343)) nil (25259 11129 526700 139000) 0 nil])
+([nil nil ((#("K" 0 1 (fontified t)) . -19376) (undo-tree-id30 . -1) 19377) nil (25259 11129 526699 788000) 0 nil])
+([nil nil ((19376 . 19377)) nil (25259 11129 526698 800000) 0 nil])
+([nil nil ((#("K" 0 1 (fontified t)) . -19411) (undo-tree-id29 . -1) 19412) nil (25259 11129 526698 519000) 0 nil])
+([nil nil ((19411 . 19412)) nil (25259 11129 526697 611000) 0 nil])
+([nil nil ((#("K" 0 1 (fontified t)) . -19445) (undo-tree-id28 . -1) 19446) nil (25259 11129 526697 185000) 0 nil])
+([nil nil ((19445 . 19446)) nil (25259 11129 526696 350000) 0 nil])
+([nil nil ((#("K" 0 1 (fontified t)) . -19479) (undo-tree-id27 . -1) 19480) nil (25259 11129 526695 936000) 0 nil])
+([nil nil ((19479 . 19480)) nil (25259 11129 526695 119000) 0 nil])
+([nil nil ((#("K" 0 1 (fontified t)) . -19514) (undo-tree-id26 . -1) 19515) nil (25259 11129 526694 689000) 0 nil])
+([nil nil ((19514 . 19515)) nil (25259 11129 526693 879000) 0 nil])
+([nil nil ((#("0" 0 1 (fontified t)) . 19346) (#("." 0 1 (fontified t)) . 19346) (#("0" 0 1 (fontified t)) . 19346)) nil (25259 11129 526693 335000) 0 nil])
+([nil nil ((19346 . 19349)) nil (25259 11129 526692 903000) 0 nil])
+([nil nil ((#("1" 0 1 (fontified t)) . 19380) (#("-" 0 1 (fontified t)) . 19380)) nil (25259 11129 526692 493000) 0 nil])
+([nil nil ((19380 . 19381)) nil (25259 11129 526692 21000) 0 nil])
+([nil nil ((#("1" 0 1 (fontified t)) . 19414)) nil (25259 11129 526691 649000) 0 nil])
+([nil nil ((19414 . 19415)) nil (25259 11129 526691 227000) 0 nil])
+([nil nil ((#("0" 0 1 (fontified t)) . 19449) (#("." 0 1 (fontified t)) . 19449)) nil (25259 11129 526690 712000) 0 nil])
+([nil nil ((#("0" 0 1 (fontified t)) . -19448) (undo-tree-id25 . -1) 19449) nil (25259 11129 526690 210000) 0 nil])
+([nil nil ((19448 . 19450)) nil (25259 11129 526689 104000) 0 nil])
+([nil nil ((#("0" 0 1 (fontified t)) . 19481) (#("." 0 1 (fontified t)) . 19481) (#("1" 0 1 (fontified t)) . 19481) (#("-" 0 1 (fontified t)) . 19481)) nil (25259 11129 526688 283000) 0 nil])
+([nil nil ((19481 . 19483)) nil (25259 11129 526687 811000) 0 nil])
+([nil nil ((#("0" 0 1 (fontified t)) . 19514) (#("." 0 1 (fontified t)) . 19514) (#("1" 0 1 (fontified t)) . 19514)) nil (25259 11129 526687 226000) 0 nil])
+([nil nil ((19514 . 19515)) nil (25259 11129 526686 614000) 0 nil])
+([nil nil ((#("s" 0 1 (fontified t)) . -19514) (undo-tree-id24 . -1) 19515) nil (25259 11129 526685 717000) 0 nil])
+([nil current ((19514 . 19516)) nil (25259 11129 526676 473000) 0 nil])
+nil

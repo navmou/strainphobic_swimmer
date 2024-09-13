@@ -1,0 +1,54 @@
+(undo-tree-save-format-version . 1)
+"54286a840523bbdb3da601160f204232cde247b1"
+[nil nil nil nil (25259 10311 758383 303000) 0 nil]
+([nil nil ((#("
+//STATE EVALUATION
+int GET_STATE(double local_grad , double TrSS , double py){
+  int state;
+  if(TrSS < trSS_threshold)
+    {
+      if(local_grad < -grad_threshold)
+	{
+	  if(py < -py_threshold){state = 0;}
+	  else if(local_grad > py_threshold){ state = 2;}
+	  else{state = 1;}
+	}
+      else if(local_grad > grad_threshold)
+	{
+	  if(py < -py_threshold){state = 6;}
+	  else if(local_grad > py_threshold){ state = 8;}
+	  else{state = 7;}
+	}
+      else
+	{
+	  if(py < -py_threshold){state = 3;}
+	  else if(local_grad > py_threshold){ state = 5;}
+	  else{state = 4;}
+	}
+    }
+  else
+        {
+      if(local_grad < -grad_threshold)
+	{
+	  if(py < -py_threshold){state = 9;}
+	  else if(local_grad > py_threshold){ state = 11;}
+	  else{state = 10;}
+	}
+      else if(local_grad > grad_threshold)
+	{
+	  if(py < -py_threshold){state = 15;}
+	  else if(local_grad > py_threshold){ state = 17;}
+	  else{state = 16;}
+	}
+      else
+	{
+	  if(py < -py_threshold){state = 12;}
+	  else if(local_grad > py_threshold){ state = 14;}
+	  else{state = 13;}
+	}
+    }
+  return state;
+}
+" 0 1 (fontified t) 1 2 (fontified t face font-lock-comment-delimiter-face c-in-sws t c-is-sws t) 2 3 (fontified t face font-lock-comment-delimiter-face c-in-sws t) 3 20 (fontified t face font-lock-comment-face c-in-sws t) 20 21 (fontified t c-is-sws t face font-lock-type-face) 21 22 (fontified t face font-lock-type-face) 22 23 (fontified t c-type c-decl-id-start face font-lock-type-face) 23 24 (fontified t) 24 33 (fontified t face font-lock-function-name-face) 33 34 (fontified t c-type c-decl-arg-start) 34 40 (fontified t face font-lock-type-face) 40 41 (fontified t) 41 51 (fontified t face font-lock-variable-name-face) 51 52 (fontified t) 52 53 (fontified t c-type c-decl-arg-start) 53 54 (fontified t) 54 60 (fontified t face font-lock-type-face) 60 61 (fontified t) 61 65 (fontified t face font-lock-variable-name-face) 65 66 (fontified t) 66 67 (fontified t c-type c-decl-arg-start) 67 68 (fontified t) 68 74 (fontified t face font-lock-type-face) 74 75 (fontified t) 75 77 (fontified t face font-lock-variable-name-face) 77 82 (fontified t) 82 84 (fontified t face font-lock-type-face) 84 85 (fontified t c-type c-decl-id-start face font-lock-type-face) 85 86 (fontified t) 86 91 (fontified t face font-lock-variable-name-face) 91 95 (fontified t) 95 97 (fontified t face font-lock-keyword-face) 97 133 (fontified t) 133 135 (fontified t face font-lock-keyword-face) 135 172 (fontified t) 172 174 (fontified t face font-lock-keyword-face) 174 210 (fontified t) 210 214 (fontified t face font-lock-keyword-face) 214 215 (fontified t) 215 217 (fontified t face font-lock-keyword-face) 217 261 (fontified t) 261 265 (fontified t face font-lock-keyword-face) 265 287 (fontified t) 287 291 (fontified t face font-lock-keyword-face) 291 292 (fontified t) 292 294 (fontified t face font-lock-keyword-face) 294 330 (fontified t) 330 332 (fontified t face font-lock-keyword-face) 332 368 (fontified t) 368 372 (fontified t face font-lock-keyword-face) 372 373 (fontified t) 373 375 (fontified t face font-lock-keyword-face) 375 419 (fontified t) 419 423 (fontified t face font-lock-keyword-face) 423 445 (fontified t) 445 449 (fontified t face font-lock-keyword-face) 449 456 (fontified t) 456 458 (fontified t face font-lock-keyword-face) 458 494 (fontified t) 494 498 (fontified t face font-lock-keyword-face) 498 499 (fontified t) 499 501 (fontified t face font-lock-keyword-face) 501 545 (fontified t) 545 549 (fontified t face font-lock-keyword-face) 549 573 (fontified t) 573 577 (fontified t face font-lock-keyword-face) 577 594 (fontified t) 594 596 (fontified t face font-lock-keyword-face) 596 633 (fontified t) 633 635 (fontified t face font-lock-keyword-face) 635 671 (fontified t) 671 675 (fontified t face font-lock-keyword-face) 675 676 (fontified t) 676 678 (fontified t face font-lock-keyword-face) 678 723 (fontified t) 723 727 (fontified t face font-lock-keyword-face) 727 750 (fontified t) 750 754 (fontified t face font-lock-keyword-face) 754 755 (fontified t) 755 757 (fontified t face font-lock-keyword-face) 757 793 (fontified t) 793 795 (fontified t face font-lock-keyword-face) 795 832 (fontified t) 832 836 (fontified t face font-lock-keyword-face) 836 837 (fontified t) 837 839 (fontified t face font-lock-keyword-face) 839 884 (fontified t) 884 888 (fontified t face font-lock-keyword-face) 888 911 (fontified t) 911 915 (fontified t face font-lock-keyword-face) 915 922 (fontified t) 922 924 (fontified t face font-lock-keyword-face) 924 961 (fontified t) 961 965 (fontified t face font-lock-keyword-face) 965 966 (fontified t) 966 968 (fontified t face font-lock-keyword-face) 968 1013 (fontified t) 1013 1017 (fontified t face font-lock-keyword-face) 1017 1042 (fontified t) 1042 1048 (fontified t face font-lock-keyword-face) 1048 1058 (fontified t)) . -17012) (undo-tree-id0 . -127) (undo-tree-id1 . -33) (undo-tree-id2 . -1058) (undo-tree-id3 . -1058) (undo-tree-id4 . -1058) 18070 (t 25258 5417 169462 0)) nil (25259 10311 758382 214000) 0 nil])
+([nil current ((nil rear-nonsticky nil 18021 . 18022) (nil fontified nil 17033 . 18022) (nil fontified nil 17032 . 17033) (nil fontified nil 17014 . 17032) (nil fontified nil 17013 . 17014) (nil fontified nil 17012 . 17013) (17012 . 18022)) nil (25259 10311 758362 928000) 0 nil])
+nil

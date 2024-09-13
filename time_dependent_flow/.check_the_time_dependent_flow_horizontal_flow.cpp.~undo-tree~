@@ -1,0 +1,6 @@
+(undo-tree-save-format-version . 1)
+"b5eeb2f509292c78d50458dab53826111f709fd0"
+[nil nil nil nil (25246 26438 844110 22000) 0 nil]
+([nil nil ((#("trSS = a11*a11 + 0.5*(a12+a21)*(a12+a21) + a22*a22;" 0 51 (fontified t)) . 11336) (undo-tree-id0 . -51) (t 25246 12686 19419 600000)) nil (25246 26438 844108 483000) 0 nil])
+([nil current ((nil rear-nonsticky nil 11386 . 11387) (nil fontified nil 11336 . 11387) (11336 . 11387)) nil (25246 26438 844088 209000) 0 nil])
+nil

@@ -1,0 +1,765 @@
+(undo-tree-save-format-version . 1)
+"993ffc917c462bd2e26bb53af3fd42381722f962"
+[nil nil nil nil (25255 27673 534060 982000) 0 nil]
+([nil nil ((#("/***
+    Strainphobic swimmer
+    The goal is to train a swimmer that is capable of avoiding high strain regions
+    The reward function is defined with a trade-off parameter \\beta in the way that
+    \\beta = 1 corresponds to a swimmer with the only goal of avoiding high strain regions
+    and \\beta = 0 corresponds to a swimmer with the only goal of swimming in positive 
+    vertical direction. Other values of \\beta between 0 and 1 correspond to different 
+    combinations of these two goals.
+    
+    For the state the second order derivatvie of the flow and the absolute value 
+    of the flow trSS is used with global information (components in the lab frame)
+
+    Feb. 3,2022
+    Changed the state signals to be a combination of the 3 signals u_y, TrSS, and the y_component of the TrSS gradient.
+    Dividied each signal to 3 levels except TrSS regions which has only 2 levels (favorable and unfavorable)
+    
+    Feb.4 , 2022
+    Reduced the actions to be only 3. Up, Down, and Stop.
+    Also, changed the thresholds
+    
+    Mar. 16, 2022
+    Using only signals \\nabla TrSS and TrSS in local frame:
+    \\nabla TrSS \\cdot \\hat{\\ve n} and TrSS is local itself
+    I expect to see a good performance for strainphobic target but not for upward
+
+    May. 18, 2022
+    Changed the flow to be time dependent by averaging the frozen flows at any time step
+    by a time dependent coefficient.
+
+    Jun. 1, 2022
+    Changed to calculate the performance in strain sampling rate
+***/
+
+#define _USE_MATH_DEFINES
+#include <cmath>
+#include <vector>
+#include <iostream>
+#include <ctime>
+#include <chrono>
+#include <sstream>
+#include <string>
+#include <bits/stdc++.h>
+#include <fstream>
+#include <H5Cpp.h>
+#include <sys/time.h>
+#include \"field_load.h\"
+
+using namespace std;
+using namespace H5;
+
+struct timeval tv;
+
+typedef vector<vector<vector<double>>> triDvec;
+typedef vector<vector<double>> twoDvec;
+typedef vector<double> oneDvec;
+
+double magnitude(oneDvec &v);
+oneDvec normalize(oneDvec &v);
+oneDvec linspace(double starting , double ending , int num);
+vector<int> oneDzeros_int(int size_of);
+double dot_prod(oneDvec &v1 , oneDvec &v2);
+twoDvec twoDzeros(int D1 , int D2);
+int GET_STATE(double local_grad , double trSS);
+int GET_ACTION(oneDvec &q , double epsilon);
+double PREF_DIR(int action);
+double PREF_VS(int action);
+double interpolate(double x, double y, triDvec &f , int field_ind);
+double get_sn(oneDvec &n, double a11 , double a12 , double a21 , double a22);
+double get_sp(oneDvec &n , oneDvec &p, double a11 , double a12 , double a21 , double a22);
+double AB(double X1, double F1X, double F0X);
+double sign(double x);
+string make_path(string field_name , string component);
+string make_dataset_name(string constant_part , int variable_part);
+void printQ(twoDvec &v);
+void write_data_twoD(twoDvec &data , string dataset_name);
+void write_data_oneD(oneDvec &data , string dataset_name);
+void write_data_oneD_int(vector<int> &data , string dataset_name);
+void printing(oneDvec &vec);
+double get_mod(double x , double L);
+twoDvec generate_As(double sigma , double tau , int n_time_steps , double dt);
+twoDvec update_flow(triDvec &V , twoDvec &A , int t);
+int get_naive_action(double trSS);
+/****************** Global values definition ******************/
+
+//Time parameters
+double dt = 0.01 , steady_T = 100.0 , T = 500+steady_T;
+int n_time_steps = (int)((T+steady_T)/dt);
+int steady_A = 500;
+int t_step;
+
+//Flow parameters
+const int nx = 400, ny = 4000;
+const double  LX = 1.0 , gridspace_x = LX/(double)nx;
+const double LY = 10.0 , gridspace_y = LY/(double)ny;
+const oneDvec gridx = linspace(0 , LX , nx);
+const oneDvec gridy = linspace(0 , LY , ny);
+const int n_fields = 50;
+const double tau = 1.0;
+const double sigma = sqrt((2.0*dt)/(n_fields*tau));
+double u_rms = 1.0 , eta = 0.1; // This is the characteristic velocity and length of the flow data
+int field_ind;
+
+//Training parameters
+double gama = 0.999 , epsilon0 = 0.1 , alpha0 = 0.04 , sigma0 = 1000.0 , E_0 = 2000.0 , epsilon , alpha;
+double c1 = 3.0/2.0 * dt , c2 = 1.0/2.0 * dt;
+const double PHI = 1.0 , PSI = 2.0;
+const double omega_s = PSI*u_rms/eta, vs = PHI*u_rms ;
+double v_s;
+const double beta = 0.0;
+const double uy_threshold = u_rms;
+const double grad_threshold = 2300.0; // 0.5*std(gradx)
+const double trSS_threshold = 2.0*log(2)*(u_rms*u_rms)/(eta*eta); // Analytical
+int num_state = 6, num_action = 3;
+
+//Noise parameters
+const double mean = 0.0;
+const double stddev = 1.0;
+const double trans_noise = sqrt(2.0*dt*0.0000001);
+const double rot_noise = sqrt(2.0*dt*0.0002) ;
+default_random_engine generator;
+normal_distribution<double> dist(mean , stddev);
+
+//opening HDF5 file
+H5File file(\"Data.h5\", H5F_ACC_TRUNC);
+//creating groups in the file
+Group group1  = file.createGroup(\"/Qs\");
+Group group2 = file.createGroup(\"/Episodes\");
+
+/*************** MAIN CODE **************/
+int main(){
+  
+  //setting the random seed
+  gettimeofday(&tv, NULL);
+  srand(tv.tv_usec);     
+  generator.seed(tv.tv_usec);
+
+  //opennign the log file
+  ofstream log_file;
+  log_file.open(\"log.txt\");
+  log_file << \"Loading the fields\" << endl;
+
+  //flow related variable definition
+  string field_name , path , dataset_name , group_name;
+  triDvec UXS, UYS, A11S , A12S, A21S , A22S;
+  triDvec D2UX11S , D2UX12S , D2UX22S , D2UY11S , D2UY12S , D2UY22S;
+  double a11 , a12 , a21 , a22;
+  double d2ux11 , d2ux12 , d2ux22 , d2uy11 , d2uy12 , d2uy22;
+
+  //defining the variables
+  int state , action , state_new , episodes_number = 1000 , heaviside;
+  double x_0 , y_0  , phi_0 , x , y , phi , t , R;
+  double ux , uy ;
+  double xmod , ymod;
+  double omega_flow;
+  double K;
+  double trSS;
+  double gradx , grady;
+  double time_diff , init_time;
+  double init_y , last_y , delta_y , reward_sum , trSS_sum;
+  oneDvec reward_sum_list , reward_list , time_list;
+  oneDvec trSS_list , delta_y_list;
+  twoDvec traj ;
+  //twoDvec Q = twoDzeros(num_state , num_action);
+  //twoDvec A = generate_As(sigma , tau , n_time_steps , dt);
+  oneDvec policy = {};
+
+  
+  //loading the fields data on memory from the file
+  stringstream flow_number;
+  string version;
+  auto start_load_field = chrono::high_resolution_clock::now();   //timing the file loading process
+  field_name = \"st_v3_u_A_d2u_No\";
+  for(int i=1 ; i <= n_fields ; ++i){
+    flow_number.str(\"\");
+    flow_number << i;
+    version = flow_number.str();
+    path = make_path(field_name , version);
+    
+    UXS.push_back(load_field(path, \"/flowData/uys\", nx , ny)); //uys is given as UXS because of transposing to preserve the structure
+    UYS.push_back(load_field(path, \"/flowData/uxs\", nx , ny)); //uxs is given as UYS because of transposing to preserve the structure
+    A11S.push_back(load_field(path, \"/flowData/A11s\", nx , ny));
+    A12S.push_back(load_field(path, \"/flowData/A12s\", nx , ny));
+    A21S.push_back(load_field(path, \"/flowData/A21s\", nx , ny));
+    D2UX11S.push_back(load_field(path, \"/flowData/d2ux11s\", nx , ny));
+    D2UX12S.push_back(load_field(path, \"/flowData/d2ux11s\", nx , ny));
+    D2UX22S.push_back(load_field(path, \"/flowData/d2ux11s\", nx , ny));
+    D2UY11S.push_back(load_field(path, \"/flowData/d2ux11s\", nx , ny));
+    log_file << \"field \" << i << \" is loaded\" << endl;
+  }
+  
+  auto finish_load_field = chrono::high_resolution_clock::now();
+  std::chrono::duration<double> elapsed_load_field = finish_load_field - start_load_field;
+  log_file << \"Fields load completed in : \" << elapsed_load_field.count() << \" s\\n\";
+  
+  //starting the time counter of the code running
+  auto start = chrono::high_resolution_clock::now();
+  /********************** episode loop **********************/
+  for(int episode=0 ; episode < episodes_number ; episode++)
+    {
+      field_ind = rand()%n_fields; //choosing one of the flows randomly
+      t_step = 0;
+      //Producing the new flow
+      auto start_episode = chrono::high_resolution_clock::now();       //timing the episode
+      //updating the learning and exploration rates
+      alpha = alpha0/(1.0+episode/sigma0);
+      if(episode < E_0)	{epsilon = epsilon0*(E_0 - episode)/E_0;}
+      else{epsilon = 0;}      
+      
+      //setting the initial values of the variables time = 0 , and position, direction randomly
+      t = 0.0;  
+      init_time = t;
+      x_0 = (rand()/double (RAND_MAX))*LX;
+      y_0 = (rand()/double (RAND_MAX))*LY;
+      phi_0 = (rand()/double (RAND_MAX))*(2.0*M_PI);
+      init_y = y_0 ; last_y = y_0;
+      reward_sum = 0.0; trSS_sum = 0.0;
+      //test_list.clear();  action_list.clear() ; n_mag_list.clear() ; p_mag_list.clear();
+      //state_list.clear() ; sn_list.clear() ; sp_list.clear();
+      //traj.clear();
+      //traj.push_back({x_0 , y_0});     //make a list to save the trajectory
+
+
+      //interpolation of the fields in the current position and time of the flow
+      xmod = get_mod(x_0, LX) , ymod = get_mod(y_0, LY);
+      ux = interpolate(xmod,ymod,UXS,field_ind);
+      uy = interpolate(xmod,ymod,UYS,field_ind);
+      a11 = interpolate(xmod,ymod,A11S,field_ind);
+      a12 = interpolate(xmod,ymod,A12S,field_ind);
+      a21 = interpolate(xmod,ymod,A21S,field_ind);
+      a22 = -a11;
+      d2ux11 = interpolate(xmod,ymod,D2UX11S,field_ind);
+      d2ux12 = interpolate(xmod,ymod,D2UX12S,field_ind);
+      d2ux22 = interpolate(xmod,ymod,D2UX22S,field_ind);
+      d2uy11 = interpolate(xmod,ymod,D2UY11S,field_ind);
+      d2uy12 = -d2ux11;
+      d2uy22 = -d2ux12;
+
+
+      //evaluating the state
+      gradx = 2*a11*d2ux11 + 2*a22*d2uy12 + (a12 + a21)*(d2uy11 + d2ux12);
+      grady = 2*a11*d2ux12 + 2*a22*d2uy22 + (a12 + a21)*(d2ux22 + d2uy12);
+      trSS = a11*a11 + 0.5*(a12+a21)*(a12+a21) + a22*a22;
+      state = GET_STATE((gradx*cos(phi_0)+grady*sin(phi_0)) , trSS);
+      state_new = state;
+      omega_flow = (a21-a12)/4;
+      //ns[state]++;
+      
+      //evaluation of action and preferred direction
+      //action = policy[state];    //choose action form the Q-matrix
+      //action = rand()%num_action;
+      action = get_naive_action(trSS);
+      //action = 1;
+      //action_list.push_back(action);            //save the action history
+      K = PREF_DIR(action);                     //choose a preferred direction
+      v_s = PREF_VS(action);
+      
+      /********************** time step loop **********************/
+      while(t < T)
+	{
+	  while(state_new == state)
+	    {
+	      x = x_0 + dt*(ux + v_s*cos(phi_0)) + dist(generator)*trans_noise;
+	      y = y_0 + dt*(uy + v_s*sin(phi_0)) +  dist(generator)*trans_noise;
+	      phi = phi_0 + dt*(omega_flow/2.0 + omega_s*K) +  dist(generator)*rot_noise;
+	    
+	      //saving the trajectory into traj list
+	      //traj.push_back({x , y});
+	      //updating the position, direction, strain, and OMEGA
+	      x_0 = x ; y_0  = y ; phi_0 = phi;
+	      
+	      //evaluating the flow information at new position and time
+	      xmod = get_mod(x, LX) , ymod = get_mod(y, LY);
+	      ux = interpolate(xmod,ymod,UXS,field_ind);
+	      uy = interpolate(xmod,ymod,UYS,field_ind);
+	      a11 = interpolate(xmod,ymod,A11S,field_ind);
+	      a12 = interpolate(xmod,ymod,A12S,field_ind);
+	      a21 = interpolate(xmod,ymod,A21S,field_ind);
+	      a22 = -a11;
+	      d2ux11 = interpolate(xmod,ymod,D2UX11S,field_ind);
+	      d2ux12 = interpolate(xmod,ymod,D2UX12S,field_ind);
+	      d2ux22 = interpolate(xmod,ymod,D2UX22S,field_ind);
+	      d2uy11 = interpolate(xmod,ymod,D2UY11S,field_ind);
+	      d2uy12 = -d2ux11;
+	      d2uy22 = -d2ux12;
+	      
+	      omega_flow = (a21-a12)/4;
+	      //getting the state
+	      gradx = 2*a11*d2ux11 + 2*a22*d2uy12 + (a12 + a21)*(d2uy11 + d2ux12);
+	      grady = 2*a11*d2ux12 + 2*a22*d2uy22 + (a12 + a21)*(d2ux22 + d2uy12);
+	      trSS = a11*a11 + 0.5*(a12+a21)*(a12+a21) + a22*a22;
+	      state_new = GET_STATE((gradx*cos(phi)+grady*sin(phi)), trSS);
+	      trSS_sum += trSS;
+
+	      t += dt;
+	      t_step++;
+	      if(t>T){break;}
+	    }
+	  //Calculating reward
+	  delta_y = y - last_y;
+	  time_diff = t - init_time;
+	  if(trSS < trSS_threshold){heaviside = 1;}
+	  else{heaviside = -1;}
+	  R = (beta*heaviside + 2.0*(1.0 - beta)*sign(delta_y));
+	  reward_sum += R;
+	  //Updating the state and action
+	  state = state_new;
+	  //evaluation of action and preferred direction
+	  //action = policy[state];    //choose action form the Q-matrix
+	  //action = rand()%num_action;
+	  action = get_naive_action(trSS);
+	  //action = 1;
+      
+	  K = PREF_DIR(action);                     //choose a prefered direction
+	  v_s = PREF_VS(action);
+	  last_y = y;
+	  init_time = t;
+	}
+      //saving the reward_sum of the last episode in the list
+      reward_sum_list.push_back(reward_sum); //to keep track of the total reward per episode
+      delta_y_list.push_back((y - init_y)/(vs*T)); // to keep track of the total vertical migration per episode
+      //To keep track of total sum over trSS values received as reward per episode
+      trSS_list.push_back(trSS_sum/(double)n_time_steps);
+      /*
+      if(episode % 1 == 0){
+	dataset_name = make_dataset_name(\"/Episodes/traj\" , episode);
+	write_data_twoD(traj , dataset_name);
+      }
+      */
+      auto finish_episode = chrono::high_resolution_clock::now();
+      std::chrono::duration<double> elapsed_episode = finish_episode - start_episode;
+      log_file << \"episode \" << episode << \" is done in : \" << elapsed_episode.count() << \" s\\n\";
+      //cout << \"Episode \" << episode << \" is done in : \" << elapsed_episode.count() << \" s\\n\";
+    }
+
+  //calculate the elapsed time
+  auto finish = chrono::high_resolution_clock::now();
+  std::chrono::duration<double> elapsed = finish - start;
+  cout << \"Elapsed time: \" << elapsed.count() << \" s\\n\";
+
+  //saving the reward_sum_list into the file
+  write_data_oneD(reward_sum_list , \"reward_sum\");
+  write_data_oneD(delta_y_list , \"vertical_migration\");
+  write_data_oneD(trSS_list , \"trSS_sum\");
+  //closing the file and it's components
+  group1.close();
+  group2.close();
+  file.close();
+  log_file.close();
+  
+
+  return 0;
+}
+
+
+twoDvec generate_As(double sigma , double tau , int n_time_steps , double dt)
+{
+  twoDvec A = twoDzeros(n_fields, (n_time_steps+steady_A));
+  for (int t = 0; t < (n_time_steps-1+steady_A); ++t)
+    {
+      for (int i = 0; i < n_fields; ++i)
+	{
+	  A[i][t+1] = A[i][t] + ((1.0/n_fields) - A[i][t]/tau)*dt + sigma*dist(generator);
+	}
+    }
+  return A;
+}
+
+
+twoDvec update_flow(triDvec &V , twoDvec &A , int t) 
+{
+  twoDvec v = twoDzeros(nx , ny);
+  for (int i = 0; i < n_fields; ++i)
+    {
+      for (int indx = 0; indx < nx; ++indx)
+	{
+	  for (int indy = 0; indy < ny; ++indy)
+	    {
+	      v[indx][indy] += V[i][indx][indy]*A[i][t+steady_A];
+	    }
+	}
+    }
+  return v;
+}
+
+
+void printQ(twoDvec &v)
+{
+  for(int i =0 ; i < (int) v.size(); i++)
+    {
+      for(int j=0 ; j < (int)v[i].size();j++)
+	    {
+	      cout << v[i][j] << \"\\t\";
+	    }
+	  cout << endl;
+	}
+
+    }
+
+double magnitude(oneDvec &v)
+{
+  double mag = 0;
+  for(int i =0 ; i < (int)v.size(); i++){
+    mag += v[i]*v[i];
+  }
+  return sqrt(mag);
+}
+
+oneDvec normalize(oneDvec &v)
+{
+  double mag = 0;
+  mag = magnitude(v);
+  oneDvec normal_v;
+  for(int i =0 ; i < (int)v.size(); i++){
+    normal_v.push_back(v[i]/mag);
+  }
+  return normal_v;
+}
+
+oneDvec linspace(double starting , double ending , int num)
+{
+  oneDvec v;
+  double delta = (ending - starting)/(num);
+  for(int i=0; i< num; i++){
+    v.push_back(starting+delta*i);
+  }
+  return v;
+}
+
+vector<int> oneDzeros_int(int size_of)
+{
+  vector<int> v;
+  for(int i=0 ; i<size_of ; i++){
+    v.push_back(0);
+  }
+  return v;
+}
+
+
+double sign(double x)
+{
+  if(x>=0){return 1.0;}
+  else{return -1.0;}
+}
+
+
+double dot_prod(oneDvec &v1 , oneDvec &v2)
+{
+  double result = 0;
+  for(int i = 0 ; i < (int)v1.size() ; i++){
+    result += v1[i]*v2[i];
+  }
+  return result;
+}
+
+
+// MAKES A TWO DIMENSIONAL VECTOR OF ZEROS
+twoDvec twoDzeros(int D1 , int D2)
+{
+  twoDvec dummy;
+  oneDvec dummy_col;
+  for(int i = 0; i < D1 ; ++i){
+    dummy_col.clear();
+    for(int j = 0; j < D2 ; ++j){
+      dummy_col.push_back(0.0);
+    }
+    dummy.push_back(dummy_col);
+  }
+  return dummy;
+}
+
+
+int get_naive_action(double trSS)
+{
+  int a;
+  if (trSS <trSS_threshold){a = 1;}
+  else
+    {
+      if(rand()/(double) RAND_MAX < 0.5){a = 0;}
+      else{a = 2;}
+    }
+
+  return a;
+}
+
+
+//STATE EVALUATION
+int GET_STATE(double local_grad , double TrSS){
+  int state;
+  if(TrSS < trSS_threshold)
+    {
+      if(local_grad < -grad_threshold){state = 0;}
+      else if(local_grad > grad_threshold){ state = 2;}
+      else{state = 1;}
+    }
+  else
+    {
+      if(local_grad < -grad_threshold){state = 3;}
+      else if(local_grad > grad_threshold){ state = 5;}
+      else{state = 4;}
+    }
+  return state;
+}
+
+
+// GETTING ACTION
+int GET_ACTION(oneDvec &q , double epsilon){
+  int Naction = 1;
+  int action = 0;
+  int num_actions = q.size();
+  vector<int> dummy_list;
+  dummy_list.push_back(action);
+
+  if(rand()/double (RAND_MAX) > epsilon)
+    {
+      for(int i = 0 ; i < (num_actions-1) ; i++)
+	{
+	  if(q[i+1] > q[action])
+	    {
+	      action = i+1;
+	      Naction = 1;
+	      dummy_list.clear();
+	    }else if(q[i+1] == q[action])
+	    {
+	      dummy_list.push_back(i+1);
+	      Naction++;
+	    }else
+	    {
+	      action = action;
+	    }
+	}
+      if(Naction > 1){
+	int index = rand() % dummy_list.size();
+	action = dummy_list[index];
+
+      }
+    }else
+    {
+      action = rand() % num_action;
+    }
+  return action;
+}
+
+// CHOOSING THE PREFERED DIRECTION USING CHOSEN ACTION
+double PREF_DIR(int action){
+  double K;
+  switch(action){
+  case 0:
+    K = -1.0;
+    break;
+  case 1:
+    K = 0.0;
+    break;
+  case 2:
+    K = 1.0;
+    break;
+  }
+  return K;
+}
+
+
+double PREF_VS(int action)
+{
+  double v;
+  if(action == 1){v = 0.0;}
+  else{v = vs;}
+  return v;
+}
+
+
+//Get the modulus
+double get_mod(double x , double L){
+  double R;
+  if(x>=0){
+    R = x - floor(x/L)*L;
+  }else {
+    x = -x;
+    R = L - (x - floor(x/L)*L) ;
+  }
+  return R;
+}
+
+
+// BIILINEAR INTERPOLATION
+double interpolate(double x, double y, triDvec &f , int field_ind)
+{    
+  int x0_ind , y0_ind;
+  int x1_ind , y1_ind;
+  double d1x , d2x , d1y , d2y;
+  
+  x0_ind =  floor(x/gridspace_x);
+  if(x0_ind == nx-1)
+    {
+      x1_ind = 0;
+      d1x = LX - x;
+      d2x = x - gridx[x0_ind];
+    }
+  else
+    {
+      x1_ind = x0_ind+1;
+      d1x = gridx[x1_ind] - x;
+      d2x = x - gridx[x0_ind];
+    }
+
+  y0_ind =  floor(y/gridspace_y);
+  if(y0_ind == ny-1)
+    {
+      y1_ind = 0;
+      d1y = LY - y;
+      d2y = y - gridy[y0_ind];
+    }
+  else
+    {
+      y1_ind = y0_ind+1;
+      d1y = gridy[y1_ind] - y;
+      d2y = y - gridy[y0_ind];
+    }
+
+  //calculate the time dependent flow around the swimmer position for interpolation
+  //g00 = f[x0,y0] , g01 = f[x0,y1] , g10 = f[x1,y0] , g11 = f[x1,y1]
+  double g00 , g01 , g10 , g11 ;
+  g00 = f[field_ind][y0_ind][x0_ind];
+  g10 = f[field_ind][y1_ind][x0_ind];
+  g01 = f[field_ind][y0_ind][x1_ind];
+  g11 = f[field_ind][y1_ind][x1_ind];
+  
+  double fxy1 = (((d1x)/gridspace_x) * g00) + (((d2x)/gridspace_x)*g10);
+  double fxy2 = (((d1x)/gridspace_x) * g01) + (((d2x)/gridspace_x)*g11);
+
+  double fxy = (((d1y)/gridspace_y) * fxy1) + (((d2y)/gridspace_y)*fxy2);
+  
+  return fxy;
+}
+
+
+// S_N CALCULATION
+double get_sn(oneDvec &n , double a11 , double a12 , double a21 , double a22){
+  double s_n = a11*n[0]*n[0] + n[1]*(a12*n[0] + a21*n[0] + a22*n[1]);
+  return s_n;
+}
+
+
+
+
+// S_P CALCULATION
+double get_sp(oneDvec &n , oneDvec &p , double a11 , double a12 , double a21 , double a22){
+  double s_p = a11*n[0]*p[0] + 0.5*(a12+a21)*n[1]*p[0] + 0.5*(a12+a21)*n[0]*p[1] + a22*n[1]*p[1];
+  return s_p;
+}
+
+
+string make_path(string field_name , string component){
+  stringstream ss;
+  string path;
+  //ss << \"../\" << field_name << \"-\" << component << \".txt\";
+  ss << \"/cephyr/users/navidm/Vera/FLOW/\" << field_name << component << \".hdf5\";
+  path = ss.str();
+  return path;
+}
+
+string make_dataset_name(string constant_part , int variable_part){
+  stringstream ss;
+  ss << constant_part << variable_part;
+  return ss.str();
+}
+
+void write_data_twoD(twoDvec &data , string dataset_name){
+  int nrow = data.size();
+  int ncol = data[0].size();
+
+  oneDvec dummy;
+  for(int i = 0 ; i < nrow ; i++){
+    for(int j = 0 ; j < ncol ; j++){
+      dummy.push_back(data[i][j]);
+    }
+  }
+  // dataset dimensions
+  hsize_t dimsf[2];
+  dimsf[0] = nrow;
+  dimsf[1] = ncol;
+  DataSpace dataspace(2, dimsf);
+
+  DataType datatype(H5::PredType::NATIVE_DOUBLE);
+  DataSet dataset = file.createDataSet(dataset_name, datatype, dataspace);
+
+  // dataset.write(vec2d.data(), H5::PredType::NATIVE_DOUBLE);
+  dataset.write(&dummy[0], H5::PredType::NATIVE_DOUBLE);
+
+  dataset.close();
+  dataspace.close();
+  //file.close();
+
+}
+
+
+void write_data_oneD(oneDvec &data , string dataset_name){
+  // dataset dimensions
+  hsize_t dimsf[1];
+  dimsf[0] = data.size();
+  DataSpace dataspace(1, dimsf);
+
+  DataType datatype(H5::PredType::NATIVE_DOUBLE);
+  DataSet dataset = file.createDataSet(dataset_name, datatype, dataspace);
+
+  // dataset.write(vec2d.data(), H5::PredType::NATIVE_DOUBLE);
+  dataset.write(&data[0], H5::PredType::NATIVE_DOUBLE);
+
+  dataset.close();
+  dataspace.close();
+  //  file.close();
+
+
+}
+
+void write_data_oneD_int(vector<int> &data , string dataset_name){
+  // dataset dimensions
+  hsize_t dimsf[1];
+  dimsf[0] = data.size();
+  DataSpace dataspace(1, dimsf);
+
+  DataType datatype(H5::PredType::NATIVE_INT32);
+  DataSet dataset = file.createDataSet(dataset_name, datatype, dataspace);
+
+  // dataset.write(vec2d.data(), H5::PredType::NATIVE_DOUBLE);
+  dataset.write(&data[0], H5::PredType::NATIVE_INT32);
+
+  dataset.close();
+  dataspace.close();
+  //  file.close();
+}
+
+
+
+
+void printing(oneDvec &vec)
+{
+  for(int i = 0 ; i < (int)vec.size() ; ++i)
+    {
+      cout << vec[i] << endl ;
+    }
+}
+" 0 1 (face font-lock-comment-delimiter-face c-is-sws t c-in-sws t fontified t) 1 4 (face font-lock-comment-delimiter-face c-in-sws t fontified t) 4 1481 (face font-lock-comment-face c-in-sws t fontified t) 1481 1482 (face font-lock-comment-delimiter-face c-in-sws t fontified t) 1482 1483 (c-in-sws t face font-lock-comment-delimiter-face fontified t) 1483 1484 (c-in-sws t fontified t) 1484 1485 (c-in-sws t fontified t) 1485 1486 (face font-lock-preprocessor-face c-is-sws t c-in-sws t fontified t) 1486 1492 (face font-lock-preprocessor-face c-in-sws t fontified t) 1492 1493 (c-in-sws t fontified t) 1493 1500 (face font-lock-variable-name-face c-in-sws t fontified t) 1500 1510 (face font-lock-variable-name-face c-in-sws t fontified t) 1510 1511 (c-in-sws t fontified t) 1511 1512 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1512 1519 (face font-lock-preprocessor-face c-in-sws t fontified t) 1519 1520 (c-in-sws t fontified t) 1520 1521 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1521 1526 (face font-lock-string-face c-in-sws t fontified t) 1526 1527 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1527 1528 (c-in-sws t fontified t) 1528 1529 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1529 1536 (face font-lock-preprocessor-face c-in-sws t fontified t) 1536 1537 (c-in-sws t fontified t) 1537 1538 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1538 1544 (face font-lock-string-face c-in-sws t fontified t) 1544 1545 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1545 1546 (c-in-sws t fontified t) 1546 1547 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1547 1554 (face font-lock-preprocessor-face c-in-sws t fontified t) 1554 1555 (c-in-sws t fontified t) 1555 1556 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1556 1564 (face font-lock-string-face c-in-sws t fontified t) 1564 1565 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1565 1566 (c-in-sws t fontified t) 1566 1567 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1567 1574 (face font-lock-preprocessor-face c-in-sws t fontified t) 1574 1575 (c-in-sws t fontified t) 1575 1576 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1576 1581 (face font-lock-string-face c-in-sws t fontified t) 1581 1582 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1582 1583 (c-in-sws t fontified t) 1583 1584 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1584 1591 (face font-lock-preprocessor-face c-in-sws t fontified t) 1591 1592 (c-in-sws t fontified t) 1592 1593 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1593 1599 (face font-lock-string-face c-in-sws t fontified t) 1599 1600 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1600 1601 (c-in-sws t fontified t) 1601 1602 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1602 1609 (face font-lock-preprocessor-face c-in-sws t fontified t) 1609 1610 (c-in-sws t fontified t) 1610 1611 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1611 1618 (face font-lock-string-face c-in-sws t fontified t) 1618 1619 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1619 1620 (c-in-sws t fontified t) 1620 1621 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1621 1628 (face font-lock-preprocessor-face c-in-sws t fontified t) 1628 1629 (c-in-sws t fontified t) 1629 1630 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1630 1636 (face font-lock-string-face c-in-sws t fontified t) 1636 1637 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1637 1638 (c-in-sws t fontified t) 1638 1639 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1639 1646 (face font-lock-preprocessor-face c-in-sws t fontified t) 1646 1647 (c-in-sws t fontified t) 1647 1648 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1648 1661 (face font-lock-string-face c-in-sws t fontified t) 1661 1662 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1662 1663 (c-in-sws t fontified t) 1663 1664 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1664 1671 (face font-lock-preprocessor-face c-in-sws t fontified t) 1671 1672 (c-in-sws t fontified t) 1672 1673 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1673 1680 (face font-lock-string-face c-in-sws t fontified t) 1680 1681 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1681 1682 (c-in-sws t fontified t) 1682 1683 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1683 1690 (face font-lock-preprocessor-face c-in-sws t fontified t) 1690 1691 (c-in-sws t fontified t) 1691 1692 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1692 1699 (face font-lock-string-face c-in-sws t fontified t) 1699 1700 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1700 1701 (c-in-sws t fontified t) 1701 1702 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1702 1709 (face font-lock-preprocessor-face c-in-sws t fontified t) 1709 1710 (c-in-sws t fontified t) 1710 1711 (syntax-table (4 . 62) face font-lock-string-face c-in-sws t fontified t) 1711 1721 (face font-lock-string-face c-in-sws t fontified t) 1721 1722 (syntax-table (5 . 60) face font-lock-string-face c-in-sws t fontified t) 1722 1723 (c-in-sws t fontified t) 1723 1724 (face font-lock-preprocessor-face c-in-sws t c-is-sws t fontified t) 1724 1731 (face font-lock-preprocessor-face c-in-sws t fontified t) 1731 1732 (c-in-sws t fontified t) 1732 1746 (face font-lock-string-face c-in-sws t fontified t) 1746 1747 (c-in-sws t fontified t) 1747 1748 (c-is-sws t fontified t) 1748 1749 (face font-lock-keyword-face c-is-sws t fontified t) 1749 1753 (face font-lock-keyword-face fontified t) 1753 1754 (fontified t) 1754 1763 (face font-lock-keyword-face fontified t) 1763 1764 (fontified t) 1764 1767 (face font-lock-constant-face fontified t) 1767 1769 (fontified t) 1769 1774 (face font-lock-keyword-face fontified t) 1774 1775 (fontified t) 1775 1784 (face font-lock-keyword-face fontified t) 1784 1785 (fontified t) 1785 1787 (face font-lock-constant-face fontified t) 1787 1790 (fontified t) 1790 1796 (face font-lock-keyword-face fontified t) 1796 1797 (fontified t) 1797 1803 (face font-lock-type-face fontified t) 1803 1804 (face font-lock-type-face c-type c-decl-id-start fontified t) 1804 1805 (fontified t) 1805 1807 (face font-lock-variable-name-face fontified t) 1807 1810 (fontified t) 1810 1817 (face font-lock-keyword-face fontified t) 1817 1818 (fontified t) 1818 1824 (face font-lock-type-face fontified t) 1824 1825 (fontified t syntax-table (4 . 62)) 1825 1831 (face font-lock-type-face fontified t) 1831 1832 (fontified t syntax-table (4 . 62)) 1832 1838 (face font-lock-type-face fontified t) 1838 1839 (fontified t syntax-table (4 . 62)) 1839 1845 (face font-lock-type-face fontified t) 1845 1846 (fontified t syntax-table (5 . 60)) 1846 1847 (fontified t syntax-table (5 . 60)) 1847 1848 (c-type c-decl-type-start fontified t syntax-table (5 . 60)) 1848 1849 (fontified t) 1849 1856 (face font-lock-type-face fontified t) 1856 1858 (fontified t) 1858 1865 (face font-lock-keyword-face fontified t) 1865 1866 (fontified t) 1866 1872 (face font-lock-type-face fontified t) 1872 1873 (fontified t syntax-table (4 . 62)) 1873 1879 (face font-lock-type-face fontified t) 1879 1880 (fontified t syntax-table (4 . 62)) 1880 1886 (face font-lock-type-face fontified t) 1886 1887 (fontified t syntax-table (5 . 60)) 1887 1888 (c-type c-decl-type-start fontified t syntax-table (5 . 60)) 1888 1889 (fontified t) 1889 1896 (face font-lock-type-face fontified t) 1896 1898 (fontified t) 1898 1905 (face font-lock-keyword-face fontified t) 1905 1906 (fontified t) 1906 1912 (face font-lock-type-face fontified t) 1912 1913 (fontified t syntax-table (4 . 62)) 1913 1919 (face font-lock-type-face fontified t) 1919 1920 (c-type c-decl-type-start fontified t syntax-table (5 . 60)) 1920 1921 (fontified t) 1921 1928 (face font-lock-type-face fontified t) 1928 1931 (fontified t) 1931 1936 (face font-lock-type-face fontified t) 1936 1937 (face font-lock-type-face c-type c-decl-id-start fontified t) 1937 1938 (fontified t) 1938 1947 (face font-lock-function-name-face fontified t) 1947 1948 (c-type c-decl-arg-start fontified t) 1948 1955 (face font-lock-type-face fontified t) 1955 1957 (fontified t) 1957 1958 (face font-lock-variable-name-face fontified t) 1958 1961 (fontified t) 1961 1967 (face font-lock-type-face fontified t) 1967 1968 (face font-lock-type-face c-type c-decl-id-start fontified t) 1968 1969 (fontified t) 1969 1978 (face font-lock-function-name-face fontified t) 1978 1979 (c-type c-decl-arg-start fontified t) 1979 1986 (face font-lock-type-face fontified t) 1986 1988 (fontified t) 1988 1989 (face font-lock-variable-name-face fontified t) 1989 1992 (fontified t) 1992 1998 (face font-lock-type-face fontified t) 1998 1999 (face font-lock-type-face c-type c-decl-id-start fontified t) 1999 2000 (fontified t) 2000 2008 (face font-lock-function-name-face fontified t) 2008 2009 (c-type c-decl-arg-start fontified t) 2009 2015 (face font-lock-type-face fontified t) 2015 2016 (fontified t) 2016 2024 (face font-lock-variable-name-face fontified t) 2024 2025 (fontified t) 2025 2026 (c-type c-decl-arg-start fontified t) 2026 2027 (fontified t) 2027 2033 (face font-lock-type-face fontified t) 2033 2034 (fontified t) 2034 2040 (face font-lock-variable-name-face fontified t) 2040 2041 (fontified t) 2041 2042 (c-type c-decl-arg-start fontified t) 2042 2043 (fontified t) 2043 2046 (face font-lock-type-face fontified t) 2046 2047 (fontified t) 2047 2050 (face font-lock-variable-name-face fontified t) 2050 2053 (fontified t) 2053 2059 (face font-lock-type-face fontified t) 2059 2060 (fontified t syntax-table (4 . 62)) 2060 2063 (face font-lock-type-face fontified t) 2063 2064 (c-type c-decl-id-start fontified t syntax-table (5 . 60)) 2064 2065 (fontified t) 2065 2078 (face font-lock-function-name-face fontified t) 2078 2079 (c-type c-decl-arg-start fontified t) 2079 2082 (face font-lock-type-face fontified t) 2082 2083 (fontified t) 2083 2090 (face font-lock-variable-name-face fontified t) 2090 2093 (fontified t) 2093 2098 (face font-lock-type-face fontified t) 2098 2099 (face font-lock-type-face c-type c-decl-id-start fontified t) 2099 2100 (fontified t) 2100 2108 (face font-lock-function-name-face fontified t) 2108 2109 (c-type c-decl-arg-start fontified t) 2109 2116 (face font-lock-type-face fontified t) 2116 2118 (fontified t) 2118 2120 (face font-lock-variable-name-face fontified t) 2120 2121 (fontified t) 2121 2122 (c-type c-decl-arg-start fontified t) 2122 2123 (fontified t) 2123 2130 (face font-lock-type-face fontified t) 2130 2132 (fontified t) 2132 2134 (face font-lock-variable-name-face fontified t) 2134 2137 (fontified t) 2137 2143 (face font-lock-type-face fontified t) 2143 2144 (face font-lock-type-face c-type c-decl-id-start fontified t) 2144 2145 (fontified t) 2145 2154 (face font-lock-function-name-face fontified t) 2154 2155 (c-type c-decl-arg-start fontified t) 2155 2158 (face font-lock-type-face fontified t) 2158 2159 (fontified t) 2159 2161 (face font-lock-variable-name-face fontified t) 2161 2162 (fontified t) 2162 2163 (c-type c-decl-arg-start fontified t) 2163 2164 (fontified t) 2164 2167 (face font-lock-type-face fontified t) 2167 2168 (fontified t) 2168 2170 (face font-lock-variable-name-face fontified t) 2170 2173 (fontified t) 2173 2175 (face font-lock-type-face fontified t) 2175 2176 (face font-lock-type-face c-type c-decl-id-start fontified t) 2176 2177 (fontified t) 2177 2186 (face font-lock-function-name-face fontified t) 2186 2187 (c-type c-decl-arg-start fontified t) 2187 2193 (face font-lock-type-face fontified t) 2193 2194 (fontified t) 2194 2204 (face font-lock-variable-name-face fontified t) 2204 2205 (fontified t) 2205 2206 (c-type c-decl-arg-start fontified t) 2206 2207 (fontified t) 2207 2213 (face font-lock-type-face fontified t) 2213 2214 (fontified t) 2214 2218 (face font-lock-variable-name-face fontified t) 2218 2221 (fontified t) 2221 2223 (face font-lock-type-face fontified t) 2223 2224 (face font-lock-type-face c-type c-decl-id-start fontified t) 2224 2225 (fontified t) 2225 2235 (face font-lock-function-name-face fontified t) 2235 2236 (c-type c-decl-arg-start fontified t) 2236 2243 (face font-lock-type-face fontified t) 2243 2245 (fontified t) 2245 2246 (face font-lock-variable-name-face fontified t) 2246 2247 (fontified t) 2247 2248 (c-type c-decl-arg-start fontified t) 2248 2249 (fontified t) 2249 2255 (face font-lock-type-face fontified t) 2255 2256 (fontified t) 2256 2263 (face font-lock-variable-name-face fontified t) 2263 2266 (fontified t) 2266 2271 (face font-lock-type-face fontified t) 2271 2272 (face font-lock-type-face c-type c-decl-id-start fontified t) 2272 2273 (fontified t) 2273 2281 (face font-lock-function-name-face fontified t) 2281 2282 (c-type c-decl-arg-start fontified t) 2282 2285 (face font-lock-type-face fontified t) 2285 2286 (fontified t) 2286 2292 (face font-lock-variable-name-face fontified t) 2292 2295 (fontified t) 2295 2300 (face font-lock-type-face fontified t) 2300 2301 (face font-lock-type-face c-type c-decl-id-start fontified t) 2301 2302 (fontified t) 2302 2309 (face font-lock-function-name-face fontified t) 2309 2310 (c-type c-decl-arg-start fontified t) 2310 2313 (face font-lock-type-face fontified t) 2313 2314 (fontified t) 2314 2320 (face font-lock-variable-name-face fontified t) 2320 2323 (fontified t) 2323 2328 (face font-lock-type-face fontified t) 2328 2329 (face font-lock-type-face c-type c-decl-id-start fontified t) 2329 2330 (fontified t) 2330 2341 (face font-lock-function-name-face fontified t) 2341 2342 (c-type c-decl-arg-start fontified t) 2342 2348 (face font-lock-type-face fontified t) 2348 2349 (fontified t) 2349 2350 (face font-lock-variable-name-face fontified t) 2350 2351 (c-type c-decl-arg-start fontified t) 2351 2352 (fontified t) 2352 2358 (face font-lock-type-face fontified t) 2358 2359 (fontified t) 2359 2360 (face font-lock-variable-name-face fontified t) 2360 2361 (c-type c-decl-arg-start fontified t) 2361 2362 (fontified t) 2362 2369 (face font-lock-type-face fontified t) 2369 2371 (fontified t) 2371 2372 (face font-lock-variable-name-face fontified t) 2372 2373 (fontified t) 2373 2374 (c-type c-decl-arg-start fontified t) 2374 2375 (fontified t) 2375 2378 (face font-lock-type-face fontified t) 2378 2379 (fontified t) 2379 2388 (face font-lock-variable-name-face fontified t) 2388 2391 (fontified t) 2391 2396 (face font-lock-type-face fontified t) 2396 2397 (face font-lock-type-face c-type c-decl-id-start fontified t) 2397 2398 (fontified t) 2398 2404 (face font-lock-function-name-face fontified t) 2404 2405 (c-type c-decl-arg-start fontified t) 2405 2412 (face font-lock-type-face fontified t) 2412 2414 (fontified t) 2414 2415 (face font-lock-variable-name-face fontified t) 2415 2416 (c-type c-decl-arg-start fontified t) 2416 2417 (fontified t) 2417 2423 (face font-lock-type-face fontified t) 2423 2424 (fontified t) 2424 2427 (face font-lock-variable-name-face fontified t) 2427 2428 (fontified t) 2428 2429 (c-type c-decl-arg-start fontified t) 2429 2430 (fontified t) 2430 2436 (face font-lock-type-face fontified t) 2436 2437 (fontified t) 2437 2440 (face font-lock-variable-name-face fontified t) 2440 2441 (fontified t) 2441 2442 (c-type c-decl-arg-start fontified t) 2442 2443 (fontified t) 2443 2449 (face font-lock-type-face fontified t) 2449 2450 (fontified t) 2450 2453 (face font-lock-variable-name-face fontified t) 2453 2454 (fontified t) 2454 2455 (c-type c-decl-arg-start fontified t) 2455 2456 (fontified t) 2456 2462 (face font-lock-type-face fontified t) 2462 2463 (fontified t) 2463 2466 (face font-lock-variable-name-face fontified t) 2466 2469 (fontified t) 2469 2474 (face font-lock-type-face fontified t) 2474 2475 (face font-lock-type-face c-type c-decl-id-start fontified t) 2475 2476 (fontified t) 2476 2482 (face font-lock-function-name-face fontified t) 2482 2483 (c-type c-decl-arg-start fontified t) 2483 2490 (face font-lock-type-face fontified t) 2490 2492 (fontified t) 2492 2493 (face font-lock-variable-name-face fontified t) 2493 2494 (fontified t) 2494 2495 (c-type c-decl-arg-start fontified t) 2495 2496 (fontified t) 2496 2503 (face font-lock-type-face fontified t) 2503 2505 (fontified t) 2505 2506 (face font-lock-variable-name-face fontified t) 2506 2507 (c-type c-decl-arg-start fontified t) 2507 2508 (fontified t) 2508 2514 (face font-lock-type-face fontified t) 2514 2515 (fontified t) 2515 2518 (face font-lock-variable-name-face fontified t) 2518 2519 (fontified t) 2519 2520 (c-type c-decl-arg-start fontified t) 2520 2521 (fontified t) 2521 2527 (face font-lock-type-face fontified t) 2527 2528 (fontified t) 2528 2531 (face font-lock-variable-name-face fontified t) 2531 2532 (fontified t) 2532 2533 (c-type c-decl-arg-start fontified t) 2533 2534 (fontified t) 2534 2540 (face font-lock-type-face fontified t) 2540 2541 (fontified t) 2541 2544 (face font-lock-variable-name-face fontified t) 2544 2545 (fontified t) 2545 2546 (c-type c-decl-arg-start fontified t) 2546 2547 (fontified t) 2547 2553 (face font-lock-type-face fontified t) 2553 2554 (fontified t) 2554 2557 (face font-lock-variable-name-face fontified t) 2557 2560 (fontified t) 2560 2565 (face font-lock-type-face fontified t) 2565 2566 (face font-lock-type-face c-type c-decl-id-start fontified t) 2566 2567 (fontified t) 2567 2569 (face font-lock-function-name-face fontified t) 2569 2570 (c-type c-decl-arg-start fontified t) 2570 2576 (face font-lock-type-face fontified t) 2576 2577 (fontified t) 2577 2579 (face font-lock-variable-name-face fontified t) 2579 2580 (c-type c-decl-arg-start fontified t) 2580 2581 (fontified t) 2581 2587 (face font-lock-type-face fontified t) 2587 2588 (fontified t) 2588 2591 (face font-lock-variable-name-face fontified t) 2591 2592 (c-type c-decl-arg-start fontified t) 2592 2593 (fontified t) 2593 2599 (face font-lock-type-face fontified t) 2599 2600 (fontified t) 2600 2603 (face font-lock-variable-name-face fontified t) 2603 2606 (fontified t) 2606 2611 (face font-lock-type-face fontified t) 2611 2612 (face font-lock-type-face c-type c-decl-id-start fontified t) 2612 2613 (fontified t) 2613 2617 (face font-lock-function-name-face fontified t) 2617 2618 (c-type c-decl-arg-start fontified t) 2618 2624 (face font-lock-type-face fontified t) 2624 2625 (fontified t) 2625 2626 (face font-lock-variable-name-face fontified t) 2626 2629 (fontified t) 2629 2634 (face font-lock-type-face fontified t) 2634 2635 (face font-lock-type-face c-type c-decl-id-start fontified t) 2635 2636 (fontified t) 2636 2645 (face font-lock-function-name-face fontified t) 2645 2646 (c-type c-decl-arg-start fontified t) 2646 2652 (face font-lock-type-face fontified t) 2652 2653 (fontified t) 2653 2663 (face font-lock-variable-name-face fontified t) 2663 2664 (fontified t) 2664 2665 (c-type c-decl-arg-start fontified t) 2665 2666 (fontified t) 2666 2672 (face font-lock-type-face fontified t) 2672 2673 (fontified t) 2673 2682 (face font-lock-variable-name-face fontified t) 2682 2685 (fontified t) 2685 2690 (face font-lock-type-face fontified t) 2690 2691 (face font-lock-type-face c-type c-decl-id-start fontified t) 2691 2692 (fontified t) 2692 2709 (face font-lock-function-name-face fontified t) 2709 2710 (c-type c-decl-arg-start fontified t) 2710 2716 (face font-lock-type-face fontified t) 2716 2717 (fontified t) 2717 2730 (face font-lock-variable-name-face fontified t) 2730 2731 (fontified t) 2731 2732 (c-type c-decl-arg-start fontified t) 2732 2733 (fontified t) 2733 2736 (face font-lock-type-face fontified t) 2736 2737 (fontified t) 2737 2750 (face font-lock-variable-name-face fontified t) 2750 2753 (fontified t) 2753 2756 (face font-lock-type-face fontified t) 2756 2757 (face font-lock-type-face c-type c-decl-id-start fontified t) 2757 2758 (fontified t) 2758 2764 (face font-lock-function-name-face fontified t) 2764 2765 (c-type c-decl-arg-start fontified t) 2765 2772 (face font-lock-type-face fontified t) 2772 2774 (fontified t) 2774 2775 (face font-lock-variable-name-face fontified t) 2775 2778 (fontified t) 2778 2781 (face font-lock-type-face fontified t) 2781 2782 (face font-lock-type-face c-type c-decl-id-start fontified t) 2782 2783 (fontified t) 2783 2798 (face font-lock-function-name-face fontified t) 2798 2799 (c-type c-decl-arg-start fontified t) 2799 2806 (face font-lock-type-face fontified t) 2806 2808 (fontified t) 2808 2812 (face font-lock-variable-name-face fontified t) 2812 2813 (fontified t) 2813 2814 (c-type c-decl-arg-start fontified t) 2814 2815 (fontified t) 2815 2821 (face font-lock-type-face fontified t) 2821 2822 (fontified t) 2822 2834 (face font-lock-variable-name-face fontified t) 2834 2837 (fontified t) 2837 2840 (face font-lock-type-face fontified t) 2840 2841 (face font-lock-type-face c-type c-decl-id-start fontified t) 2841 2842 (fontified t) 2842 2857 (face font-lock-function-name-face fontified t) 2857 2858 (c-type c-decl-arg-start fontified t) 2858 2865 (face font-lock-type-face fontified t) 2865 2867 (fontified t) 2867 2871 (face font-lock-variable-name-face fontified t) 2871 2872 (fontified t) 2872 2873 (c-type c-decl-arg-start fontified t) 2873 2874 (fontified t) 2874 2880 (face font-lock-type-face fontified t) 2880 2881 (fontified t) 2881 2893 (face font-lock-variable-name-face fontified t) 2893 2896 (fontified t) 2896 2899 (face font-lock-type-face fontified t) 2899 2900 (face font-lock-type-face c-type c-decl-id-start fontified t) 2900 2901 (fontified t) 2901 2920 (face font-lock-function-name-face fontified t) 2920 2921 (c-type c-decl-arg-start fontified t) 2921 2927 (face font-lock-type-face fontified t) 2927 2928 (fontified t syntax-table (4 . 62)) 2928 2931 (face font-lock-type-face fontified t) 2931 2932 (fontified t syntax-table (5 . 60)) 2932 2934 (fontified t) 2934 2938 (face font-lock-variable-name-face fontified t) 2938 2939 (fontified t) 2939 2940 (c-type c-decl-arg-start fontified t) 2940 2941 (fontified t) 2941 2947 (face font-lock-type-face fontified t) 2947 2948 (fontified t) 2948 2960 (face font-lock-variable-name-face fontified t) 2960 2963 (fontified t) 2963 2966 (face font-lock-type-face fontified t) 2966 2967 (face font-lock-type-face c-type c-decl-id-start fontified t) 2967 2968 (fontified t) 2968 2976 (face font-lock-function-name-face fontified t) 2976 2977 (c-type c-decl-arg-start fontified t) 2977 2984 (face font-lock-type-face fontified t) 2984 2986 (fontified t) 2986 2989 (face font-lock-variable-name-face fontified t) 2989 2992 (fontified t) 2992 2997 (face font-lock-type-face fontified t) 2997 2998 (face font-lock-type-face c-type c-decl-id-start fontified t) 2998 2999 (fontified t) 2999 3006 (face font-lock-function-name-face fontified t) 3006 3007 (c-type c-decl-arg-start fontified t) 3007 3011 (face font-lock-type-face fontified t) 3011 3013 (face font-lock-type-face fontified t) 3013 3014 (fontified t) 3014 3015 (face font-lock-variable-name-face fontified t) 3015 3016 (fontified t) 3016 3017 (c-type c-decl-arg-start fontified t) 3017 3018 (fontified t) 3018 3024 (face font-lock-type-face fontified t) 3024 3025 (fontified t) 3025 3026 (face font-lock-variable-name-face fontified t) 3026 3029 (fontified t) 3029 4605 (fontified nil) 4605 4606 (fontified nil syntax-table (4 . 62)) 4606 4612 (fontified nil) 4612 4613 (fontified nil syntax-table (5 . 60)) 4613 7303 (fontified nil) 7303 7304 (fontified nil syntax-table (4 . 62)) 7304 7310 (fontified nil) 7310 7311 (fontified nil syntax-table (5 . 60)) 7311 13147 (fontified nil) 13147 13148 (fontified nil syntax-table (4 . 62)) 13148 13154 (fontified nil) 13154 13155 (fontified nil syntax-table (5 . 60)) 13155 13515 (fontified nil) 13515 13516 (fontified nil syntax-table (4 . 62)) 13516 13522 (fontified nil) 13522 13523 (fontified nil syntax-table (5 . 60)) 13523 13830 (fontified nil) 13830 13831 (fontified nil) 13831 15344 (fontified nil) 15344 15345 (fontified nil syntax-table (4 . 62)) 15345 15348 (fontified nil) 15348 15349 (fontified nil syntax-table (5 . 60)) 15349 15387 (fontified nil) 15387 15388 (fontified nil syntax-table (4 . 62)) 15388 15391 (fontified nil) 15391 15392 (fontified nil syntax-table (5 . 60)) 15392 16749 (fontified nil) 16749 16750 (fontified nil syntax-table (4 . 62)) 16750 16753 (fontified nil) 16753 16754 (fontified nil syntax-table (5 . 60)) 16754 19600 (fontified nil) 19600 19603 (fontified nil c-is-sws t c-in-sws t) 19603 19661 (fontified nil c-in-sws t) 19661 19663 (fontified nil c-in-sws t c-is-sws t) 19663 19664 (fontified nil c-is-sws t) 19664 21108 (fontified nil) 21108 21109 (fontified nil syntax-table (4 . 62)) 21109 21112 (fontified nil) 21112 21113 (fontified nil syntax-table (5 . 60)) 21113 21678 (fontified nil)) . 1) (undo-tree-id0 . -1511) (undo-tree-id1 . -1527) (undo-tree-id2 . -5677) (undo-tree-id3 . -5686) (undo-tree-id4 . -21678) (undo-tree-id5 . -21678) (t 25240 35498 276336 800000)) nil (25255 27673 534059 613000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 21678 . 21679) (nil fontified nil 21114 . 21679) (nil fontified nil 21113 . 21114) (nil fontified nil 21110 . 21113) (nil fontified nil 21109 . 21110) (nil fontified nil 19665 . 21109) (nil fontified nil 19664 . 19665) (nil fontified nil 19662 . 19664) (nil fontified nil 19604 . 19662) (nil fontified nil 19601 . 19604) (nil fontified nil 16755 . 19601) (nil fontified nil 16754 . 16755) (nil fontified nil 16751 . 16754) (nil fontified nil 16750 . 16751) (nil fontified nil 15393 . 16750) (nil fontified nil 15392 . 15393) (nil fontified nil 15389 . 15392) (nil fontified nil 15388 . 15389) (nil fontified nil 15350 . 15388) (nil fontified nil 15349 . 15350) (nil fontified nil 15346 . 15349) (nil fontified nil 15345 . 15346) (nil fontified nil 13832 . 15345) (nil fontified nil 13831 . 13832) (nil fontified nil 13524 . 13831) (nil fontified nil 13523 . 13524) (nil fontified nil 13517 . 13523) (nil fontified nil 13516 . 13517) (nil fontified nil 13156 . 13516) (nil fontified nil 13155 . 13156) (nil fontified nil 13149 . 13155) (nil fontified nil 13148 . 13149) (nil fontified nil 7312 . 13148) (nil fontified nil 7311 . 7312) (nil fontified nil 7305 . 7311) (nil fontified nil 7304 . 7305) (nil fontified nil 4614 . 7304) (nil fontified nil 4613 . 4614) (nil fontified nil 4607 . 4613) (nil fontified nil 4606 . 4607) (nil fontified nil 3030 . 4606) (nil fontified nil 3027 . 3030) (nil fontified nil 3026 . 3027) (nil fontified nil 3025 . 3026) (nil fontified nil 3019 . 3025) (nil fontified nil 3018 . 3019) (nil fontified nil 3017 . 3018) (nil fontified nil 3016 . 3017) (nil fontified nil 3015 . 3016) (nil fontified nil 3014 . 3015) (nil fontified nil 3012 . 3014) (nil fontified nil 3008 . 3012) (nil fontified nil 3007 . 3008) (nil fontified nil 3000 . 3007) (nil fontified nil 2999 . 3000) (nil fontified nil 2998 . 2999) (nil fontified nil 2993 . 2998) (nil fontified nil 2990 . 2993) (nil fontified nil 2987 . 2990) (nil fontified nil 2985 . 2987) (nil fontified nil 2978 . 2985) (nil fontified nil 2977 . 2978) (nil fontified nil 2969 . 2977) (nil fontified nil 2968 . 2969) (nil fontified nil 2967 . 2968) (nil fontified nil 2964 . 2967) (nil fontified nil 2961 . 2964) (nil fontified nil 2949 . 2961) (nil fontified nil 2948 . 2949) (nil fontified nil 2942 . 2948) (nil fontified nil 2941 . 2942) (nil fontified nil 2940 . 2941) (nil fontified nil 2939 . 2940) (nil fontified nil 2935 . 2939) (nil fontified nil 2933 . 2935) (nil fontified nil 2932 . 2933) (nil fontified nil 2929 . 2932) (nil fontified nil 2928 . 2929) (nil fontified nil 2922 . 2928) (nil fontified nil 2921 . 2922) (nil fontified nil 2902 . 2921) (nil fontified nil 2901 . 2902) (nil fontified nil 2900 . 2901) (nil fontified nil 2897 . 2900) (nil fontified nil 2894 . 2897) (nil fontified nil 2882 . 2894) (nil fontified nil 2881 . 2882) (nil fontified nil 2875 . 2881) (nil fontified nil 2874 . 2875) (nil fontified nil 2873 . 2874) (nil fontified nil 2872 . 2873) (nil fontified nil 2868 . 2872) (nil fontified nil 2866 . 2868) (nil fontified nil 2859 . 2866) (nil fontified nil 2858 . 2859) (nil fontified nil 2843 . 2858) (nil fontified nil 2842 . 2843) (nil fontified nil 2841 . 2842) (nil fontified nil 2838 . 2841) (nil fontified nil 2835 . 2838) (nil fontified nil 2823 . 2835) (nil fontified nil 2822 . 2823) (nil fontified nil 2816 . 2822) (nil fontified nil 2815 . 2816) (nil fontified nil 2814 . 2815) (nil fontified nil 2813 . 2814) (nil fontified nil 2809 . 2813) (nil fontified nil 2807 . 2809) (nil fontified nil 2800 . 2807) (nil fontified nil 2799 . 2800) (nil fontified nil 2784 . 2799) (nil fontified nil 2783 . 2784) (nil fontified nil 2782 . 2783) (nil fontified nil 2779 . 2782) (nil fontified nil 2776 . 2779) (nil fontified nil 2775 . 2776) (nil fontified nil 2773 . 2775) (nil fontified nil 2766 . 2773) (nil fontified nil 2765 . 2766) (nil fontified nil 2759 . 2765) (nil fontified nil 2758 . 2759) (nil fontified nil 2757 . 2758) (nil fontified nil 2754 . 2757) (nil fontified nil 2751 . 2754) (nil fontified nil 2738 . 2751) (nil fontified nil 2737 . 2738) (nil fontified nil 2734 . 2737) (nil fontified nil 2733 . 2734) (nil fontified nil 2732 . 2733) (nil fontified nil 2731 . 2732) (nil fontified nil 2718 . 2731) (nil fontified nil 2717 . 2718) (nil fontified nil 2711 . 2717) (nil fontified nil 2710 . 2711) (nil fontified nil 2693 . 2710) (nil fontified nil 2692 . 2693) (nil fontified nil 2691 . 2692) (nil fontified nil 2686 . 2691) (nil fontified nil 2683 . 2686) (nil fontified nil 2674 . 2683) (nil fontified nil 2673 . 2674) (nil fontified nil 2667 . 2673) (nil fontified nil 2666 . 2667) (nil fontified nil 2665 . 2666) (nil fontified nil 2664 . 2665) (nil fontified nil 2654 . 2664) (nil fontified nil 2653 . 2654) (nil fontified nil 2647 . 2653) (nil fontified nil 2646 . 2647) (nil fontified nil 2637 . 2646) (nil fontified nil 2636 . 2637) (nil fontified nil 2635 . 2636) (nil fontified nil 2630 . 2635) (nil fontified nil 2627 . 2630) (nil fontified nil 2626 . 2627) (nil fontified nil 2625 . 2626) (nil fontified nil 2619 . 2625) (nil fontified nil 2618 . 2619) (nil fontified nil 2614 . 2618) (nil fontified nil 2613 . 2614) (nil fontified nil 2612 . 2613) (nil fontified nil 2607 . 2612) (nil fontified nil 2604 . 2607) (nil fontified nil 2601 . 2604) (nil fontified nil 2600 . 2601) (nil fontified nil 2594 . 2600) (nil fontified nil 2593 . 2594) (nil fontified nil 2592 . 2593) (nil fontified nil 2589 . 2592) (nil fontified nil 2588 . 2589) (nil fontified nil 2582 . 2588) (nil fontified nil 2581 . 2582) (nil fontified nil 2580 . 2581) (nil fontified nil 2578 . 2580) (nil fontified nil 2577 . 2578) (nil fontified nil 2571 . 2577) (nil fontified nil 2570 . 2571) (nil fontified nil 2568 . 2570) (nil fontified nil 2567 . 2568) (nil fontified nil 2566 . 2567) (nil fontified nil 2561 . 2566) (nil fontified nil 2558 . 2561) (nil fontified nil 2555 . 2558) (nil fontified nil 2554 . 2555) (nil fontified nil 2548 . 2554) (nil fontified nil 2547 . 2548) (nil fontified nil 2546 . 2547) (nil fontified nil 2545 . 2546) (nil fontified nil 2542 . 2545) (nil fontified nil 2541 . 2542) (nil fontified nil 2535 . 2541) (nil fontified nil 2534 . 2535) (nil fontified nil 2533 . 2534) (nil fontified nil 2532 . 2533) (nil fontified nil 2529 . 2532) (nil fontified nil 2528 . 2529) (nil fontified nil 2522 . 2528) (nil fontified nil 2521 . 2522) (nil fontified nil 2520 . 2521) (nil fontified nil 2519 . 2520) (nil fontified nil 2516 . 2519) (nil fontified nil 2515 . 2516) (nil fontified nil 2509 . 2515) (nil fontified nil 2508 . 2509) (nil fontified nil 2507 . 2508) (nil fontified nil 2506 . 2507) (nil fontified nil 2504 . 2506) (nil fontified nil 2497 . 2504) (nil fontified nil 2496 . 2497) (nil fontified nil 2495 . 2496) (nil fontified nil 2494 . 2495) (nil fontified nil 2493 . 2494) (nil fontified nil 2491 . 2493) (nil fontified nil 2484 . 2491) (nil fontified nil 2483 . 2484) (nil fontified nil 2477 . 2483) (nil fontified nil 2476 . 2477) (nil fontified nil 2475 . 2476) (nil fontified nil 2470 . 2475) (nil fontified nil 2467 . 2470) (nil fontified nil 2464 . 2467) (nil fontified nil 2463 . 2464) (nil fontified nil 2457 . 2463) (nil fontified nil 2456 . 2457) (nil fontified nil 2455 . 2456) (nil fontified nil 2454 . 2455) (nil fontified nil 2451 . 2454) (nil fontified nil 2450 . 2451) (nil fontified nil 2444 . 2450) (nil fontified nil 2443 . 2444) (nil fontified nil 2442 . 2443) (nil fontified nil 2441 . 2442) (nil fontified nil 2438 . 2441) (nil fontified nil 2437 . 2438) (nil fontified nil 2431 . 2437) (nil fontified nil 2430 . 2431) (nil fontified nil 2429 . 2430) (nil fontified nil 2428 . 2429) (nil fontified nil 2425 . 2428) (nil fontified nil 2424 . 2425) (nil fontified nil 2418 . 2424) (nil fontified nil 2417 . 2418) (nil fontified nil 2416 . 2417) (nil fontified nil 2415 . 2416) (nil fontified nil 2413 . 2415) (nil fontified nil 2406 . 2413) (nil fontified nil 2405 . 2406) (nil fontified nil 2399 . 2405) (nil fontified nil 2398 . 2399) (nil fontified nil 2397 . 2398) (nil fontified nil 2392 . 2397) (nil fontified nil 2389 . 2392) (nil fontified nil 2380 . 2389) (nil fontified nil 2379 . 2380) (nil fontified nil 2376 . 2379) (nil fontified nil 2375 . 2376) (nil fontified nil 2374 . 2375) (nil fontified nil 2373 . 2374) (nil fontified nil 2372 . 2373) (nil fontified nil 2370 . 2372) (nil fontified nil 2363 . 2370) (nil fontified nil 2362 . 2363) (nil fontified nil 2361 . 2362) (nil fontified nil 2360 . 2361) (nil fontified nil 2359 . 2360) (nil fontified nil 2353 . 2359) (nil fontified nil 2352 . 2353) (nil fontified nil 2351 . 2352) (nil fontified nil 2350 . 2351) (nil fontified nil 2349 . 2350) (nil fontified nil 2343 . 2349) (nil fontified nil 2342 . 2343) (nil fontified nil 2331 . 2342) (nil fontified nil 2330 . 2331) (nil fontified nil 2329 . 2330) (nil fontified nil 2324 . 2329) (nil fontified nil 2321 . 2324) (nil fontified nil 2315 . 2321) (nil fontified nil 2314 . 2315) (nil fontified nil 2311 . 2314) (nil fontified nil 2310 . 2311) (nil fontified nil 2303 . 2310) (nil fontified nil 2302 . 2303) (nil fontified nil 2301 . 2302) (nil fontified nil 2296 . 2301) (nil fontified nil 2293 . 2296) (nil fontified nil 2287 . 2293) (nil fontified nil 2286 . 2287) (nil fontified nil 2283 . 2286) (nil fontified nil 2282 . 2283) (nil fontified nil 2274 . 2282) (nil fontified nil 2273 . 2274) (nil fontified nil 2272 . 2273) (nil fontified nil 2267 . 2272) (nil fontified nil 2264 . 2267) (nil fontified nil 2257 . 2264) (nil fontified nil 2256 . 2257) (nil fontified nil 2250 . 2256) (nil fontified nil 2249 . 2250) (nil fontified nil 2248 . 2249) (nil fontified nil 2247 . 2248) (nil fontified nil 2246 . 2247) (nil fontified nil 2244 . 2246) (nil fontified nil 2237 . 2244) (nil fontified nil 2236 . 2237) (nil fontified nil 2226 . 2236) (nil fontified nil 2225 . 2226) (nil fontified nil 2224 . 2225) (nil fontified nil 2222 . 2224) (nil fontified nil 2219 . 2222) (nil fontified nil 2215 . 2219) (nil fontified nil 2214 . 2215) (nil fontified nil 2208 . 2214) (nil fontified nil 2207 . 2208) (nil fontified nil 2206 . 2207) (nil fontified nil 2205 . 2206) (nil fontified nil 2195 . 2205) (nil fontified nil 2194 . 2195) (nil fontified nil 2188 . 2194) (nil fontified nil 2187 . 2188) (nil fontified nil 2178 . 2187) (nil fontified nil 2177 . 2178) (nil fontified nil 2176 . 2177) (nil fontified nil 2174 . 2176) (nil fontified nil 2171 . 2174) (nil fontified nil 2169 . 2171) (nil fontified nil 2168 . 2169) (nil fontified nil 2165 . 2168) (nil fontified nil 2164 . 2165) (nil fontified nil 2163 . 2164) (nil fontified nil 2162 . 2163) (nil fontified nil 2160 . 2162) (nil fontified nil 2159 . 2160) (nil fontified nil 2156 . 2159) (nil fontified nil 2155 . 2156) (nil fontified nil 2146 . 2155) (nil fontified nil 2145 . 2146) (nil fontified nil 2144 . 2145) (nil fontified nil 2138 . 2144) (nil fontified nil 2135 . 2138) (nil fontified nil 2133 . 2135) (nil fontified nil 2131 . 2133) (nil fontified nil 2124 . 2131) (nil fontified nil 2123 . 2124) (nil fontified nil 2122 . 2123) (nil fontified nil 2121 . 2122) (nil fontified nil 2119 . 2121) (nil fontified nil 2117 . 2119) (nil fontified nil 2110 . 2117) (nil fontified nil 2109 . 2110) (nil fontified nil 2101 . 2109) (nil fontified nil 2100 . 2101) (nil fontified nil 2099 . 2100) (nil fontified nil 2094 . 2099) (nil fontified nil 2091 . 2094) (nil fontified nil 2084 . 2091) (nil fontified nil 2083 . 2084) (nil fontified nil 2080 . 2083) (nil fontified nil 2079 . 2080) (nil fontified nil 2066 . 2079) (nil fontified nil 2065 . 2066) (nil fontified nil 2064 . 2065) (nil fontified nil 2061 . 2064) (nil fontified nil 2060 . 2061) (nil fontified nil 2054 . 2060) (nil fontified nil 2051 . 2054) (nil fontified nil 2048 . 2051) (nil fontified nil 2047 . 2048) (nil fontified nil 2044 . 2047) (nil fontified nil 2043 . 2044) (nil fontified nil 2042 . 2043) (nil fontified nil 2041 . 2042) (nil fontified nil 2035 . 2041) (nil fontified nil 2034 . 2035) (nil fontified nil 2028 . 2034) (nil fontified nil 2027 . 2028) (nil fontified nil 2026 . 2027) (nil fontified nil 2025 . 2026) (nil fontified nil 2017 . 2025) (nil fontified nil 2016 . 2017) (nil fontified nil 2010 . 2016) (nil fontified nil 2009 . 2010) (nil fontified nil 2001 . 2009) (nil fontified nil 2000 . 2001) (nil fontified nil 1999 . 2000) (nil fontified nil 1993 . 1999) (nil fontified nil 1990 . 1993) (nil fontified nil 1989 . 1990) (nil fontified nil 1987 . 1989) (nil fontified nil 1980 . 1987) (nil fontified nil 1979 . 1980) (nil fontified nil 1970 . 1979) (nil fontified nil 1969 . 1970) (nil fontified nil 1968 . 1969) (nil fontified nil 1962 . 1968) (nil fontified nil 1959 . 1962) (nil fontified nil 1958 . 1959) (nil fontified nil 1956 . 1958) (nil fontified nil 1949 . 1956) (nil fontified nil 1948 . 1949) (nil fontified nil 1939 . 1948) (nil fontified nil 1938 . 1939) (nil fontified nil 1937 . 1938) (nil fontified nil 1932 . 1937) (nil fontified nil 1929 . 1932) (nil fontified nil 1922 . 1929) (nil fontified nil 1921 . 1922) (nil fontified nil 1920 . 1921) (nil fontified nil 1914 . 1920) (nil fontified nil 1913 . 1914) (nil fontified nil 1907 . 1913) (nil fontified nil 1906 . 1907) (nil fontified nil 1899 . 1906) (nil fontified nil 1897 . 1899) (nil fontified nil 1890 . 1897) (nil fontified nil 1889 . 1890) (nil fontified nil 1888 . 1889) (nil fontified nil 1887 . 1888) (nil fontified nil 1881 . 1887) (nil fontified nil 1880 . 1881) (nil fontified nil 1874 . 1880) (nil fontified nil 1873 . 1874) (nil fontified nil 1867 . 1873) (nil fontified nil 1866 . 1867) (nil fontified nil 1859 . 1866) (nil fontified nil 1857 . 1859) (nil fontified nil 1850 . 1857) (nil fontified nil 1849 . 1850) (nil fontified nil 1848 . 1849) (nil fontified nil 1847 . 1848) (nil fontified nil 1846 . 1847) (nil fontified nil 1840 . 1846) (nil fontified nil 1839 . 1840) (nil fontified nil 1833 . 1839) (nil fontified nil 1832 . 1833) (nil fontified nil 1826 . 1832) (nil fontified nil 1825 . 1826) (nil fontified nil 1819 . 1825) (nil fontified nil 1818 . 1819) (nil fontified nil 1811 . 1818) (nil fontified nil 1808 . 1811) (nil fontified nil 1806 . 1808) (nil fontified nil 1805 . 1806) (nil fontified nil 1804 . 1805) (nil fontified nil 1798 . 1804) (nil fontified nil 1797 . 1798) (nil fontified nil 1791 . 1797) (nil fontified nil 1788 . 1791) (nil fontified nil 1786 . 1788) (nil fontified nil 1785 . 1786) (nil fontified nil 1776 . 1785) (nil fontified nil 1775 . 1776) (nil fontified nil 1770 . 1775) (nil fontified nil 1768 . 1770) (nil fontified nil 1765 . 1768) (nil fontified nil 1764 . 1765) (nil fontified nil 1755 . 1764) (nil fontified nil 1754 . 1755) (nil fontified nil 1750 . 1754) (nil fontified nil 1749 . 1750) (nil fontified nil 1748 . 1749) (nil fontified nil 1747 . 1748) (nil fontified nil 1733 . 1747) (nil fontified nil 1732 . 1733) (nil fontified nil 1725 . 1732) (nil fontified nil 1724 . 1725) (nil fontified nil 1723 . 1724) (nil fontified nil 1722 . 1723) (nil fontified nil 1712 . 1722) (nil fontified nil 1711 . 1712) (nil fontified nil 1710 . 1711) (nil fontified nil 1703 . 1710) (nil fontified nil 1702 . 1703) (nil fontified nil 1701 . 1702) (nil fontified nil 1700 . 1701) (nil fontified nil 1693 . 1700) (nil fontified nil 1692 . 1693) (nil fontified nil 1691 . 1692) (nil fontified nil 1684 . 1691) (nil fontified nil 1683 . 1684) (nil fontified nil 1682 . 1683) (nil fontified nil 1681 . 1682) (nil fontified nil 1674 . 1681) (nil fontified nil 1673 . 1674) (nil fontified nil 1672 . 1673) (nil fontified nil 1665 . 1672) (nil fontified nil 1664 . 1665) (nil fontified nil 1663 . 1664) (nil fontified nil 1662 . 1663) (nil fontified nil 1649 . 1662) (nil fontified nil 1648 . 1649) (nil fontified nil 1647 . 1648) (nil fontified nil 1640 . 1647) (nil fontified nil 1639 . 1640) (nil fontified nil 1638 . 1639) (nil fontified nil 1637 . 1638) (nil fontified nil 1631 . 1637) (nil fontified nil 1630 . 1631) (nil fontified nil 1629 . 1630) (nil fontified nil 1622 . 1629) (nil fontified nil 1621 . 1622) (nil fontified nil 1620 . 1621) (nil fontified nil 1619 . 1620) (nil fontified nil 1612 . 1619) (nil fontified nil 1611 . 1612) (nil fontified nil 1610 . 1611) (nil fontified nil 1603 . 1610) (nil fontified nil 1602 . 1603) (nil fontified nil 1601 . 1602) (nil fontified nil 1600 . 1601) (nil fontified nil 1594 . 1600) (nil fontified nil 1593 . 1594) (nil fontified nil 1592 . 1593) (nil fontified nil 1585 . 1592) (nil fontified nil 1584 . 1585) (nil fontified nil 1583 . 1584) (nil fontified nil 1582 . 1583) (nil fontified nil 1577 . 1582) (nil fontified nil 1576 . 1577) (nil fontified nil 1575 . 1576) (nil fontified nil 1568 . 1575) (nil fontified nil 1567 . 1568) (nil fontified nil 1566 . 1567) (nil fontified nil 1565 . 1566) (nil fontified nil 1557 . 1565) (nil fontified nil 1556 . 1557) (nil fontified nil 1555 . 1556) (nil fontified nil 1548 . 1555) (nil fontified nil 1547 . 1548) (nil fontified nil 1546 . 1547) (nil fontified nil 1545 . 1546) (nil fontified nil 1539 . 1545) (nil fontified nil 1538 . 1539) (nil fontified nil 1537 . 1538) (nil fontified nil 1530 . 1537) (nil fontified nil 1529 . 1530) (nil fontified nil 1528 . 1529) (nil fontified nil 1527 . 1528) (nil fontified nil 1522 . 1527) (nil fontified nil 1521 . 1522) (nil fontified nil 1520 . 1521) (nil fontified nil 1513 . 1520) (nil fontified nil 1512 . 1513) (nil fontified nil 1511 . 1512) (nil fontified nil 1501 . 1511) (nil fontified nil 1494 . 1501) (nil fontified nil 1493 . 1494) (nil fontified nil 1487 . 1493) (nil fontified nil 1486 . 1487) (nil fontified nil 1485 . 1486) (nil fontified nil 1484 . 1485) (nil fontified nil 1483 . 1484) (nil fontified nil 1482 . 1483) (nil fontified nil 5 . 1482) (nil fontified nil 2 . 5) (nil fontified nil 1 . 2) (1 . 21679)) nil (25255 27673 534035 220000) 0 nil])
+([nil nil ((#("//action = rand()%num_action;
+      action = get_naive_action(trSS);
+      //action = 1;" 0 1 (fontified t face font-lock-comment-delimiter-face c-is-sws t) 1 2 (fontified t face font-lock-comment-delimiter-face c-in-sws t) 2 30 (fontified t face font-lock-comment-face c-in-sws t) 30 36 (fontified t c-is-sws t c-in-sws t) 36 37 (fontified t c-is-sws t) 37 69 (fontified t) 69 75 (fontified t c-in-sws t c-is-sws t) 75 76 (fontified t face font-lock-comment-delimiter-face c-in-sws t c-is-sws t) 76 77 (fontified t face font-lock-comment-delimiter-face c-in-sws t) 77 88 (fontified t face font-lock-comment-face c-in-sws t)) . 9914) (undo-tree-id0 . -88) (undo-tree-id1 . -88) (undo-tree-id2 . -69) (undo-tree-id3 . -88) 10002 (t 25255 27673 539015 800000)) nil (25257 43402 63661 329000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 10001 . 10002) (nil fontified nil 9991 . 10002) (nil fontified nil 9990 . 9991) (nil fontified nil 9989 . 9990) (nil fontified nil 9983 . 9989) (nil fontified nil 9951 . 9983) (nil fontified nil 9950 . 9951) (nil fontified nil 9944 . 9950) (nil fontified nil 9916 . 9944) (nil fontified nil 9915 . 9916) (nil fontified nil 9914 . 9915) (9914 . 10002)) nil (25257 43402 63632 6000) 0 nil])
+([nil nil ((#("
+int get_naive_action(double trSS)
+{
+  int a;
+  if (trSS <trSS_threshold){a = 1;}
+  else
+    {
+      if(rand()/(double) RAND_MAX < 0.5){a = 0;}
+      else{a = 2;}
+    }
+
+  return a;
+}
+" 0 1 (fontified t) 1 3 (fontified t face font-lock-type-face) 3 4 (fontified t c-type c-decl-id-start face font-lock-type-face) 4 5 (fontified t) 5 21 (fontified t face font-lock-function-name-face) 21 22 (fontified t c-type c-decl-arg-start) 22 28 (fontified t face font-lock-type-face) 28 29 (fontified t) 29 33 (fontified t face font-lock-variable-name-face) 33 39 (fontified t) 39 41 (fontified t face font-lock-type-face) 41 42 (fontified t c-type c-decl-id-start face font-lock-type-face) 42 43 (fontified t) 43 44 (fontified t face font-lock-variable-name-face) 44 48 (fontified t) 48 50 (fontified t face font-lock-keyword-face) 50 84 (fontified t) 84 88 (fontified t face font-lock-keyword-face) 88 101 (fontified t) 101 103 (fontified t face font-lock-keyword-face) 103 112 (fontified t) 112 118 (fontified t face font-lock-type-face) 118 150 (fontified t) 150 154 (fontified t face font-lock-keyword-face) 154 172 (fontified t) 172 178 (fontified t face font-lock-keyword-face) 178 184 (fontified t)) . 16007) (undo-tree-id4 . -14) (undo-tree-id5 . -184) (undo-tree-id6 . -184) (undo-tree-id7 . -184) (undo-tree-id8 . -184) 16191 (t 25257 43402 68899 400000)) nil (25257 43434 493974 544000) 0 nil])
+([nil current ((nil rear-nonsticky nil 16190 . 16191) (nil fontified nil 16185 . 16191) (nil fontified nil 16179 . 16185) (nil fontified nil 16161 . 16179) (nil fontified nil 16157 . 16161) (nil fontified nil 16125 . 16157) (nil fontified nil 16119 . 16125) (nil fontified nil 16110 . 16119) (nil fontified nil 16108 . 16110) (nil fontified nil 16095 . 16108) (nil fontified nil 16091 . 16095) (nil fontified nil 16057 . 16091) (nil fontified nil 16055 . 16057) (nil fontified nil 16051 . 16055) (nil fontified nil 16050 . 16051) (nil fontified nil 16049 . 16050) (nil fontified nil 16048 . 16049) (nil fontified nil 16046 . 16048) (nil fontified nil 16040 . 16046) (nil fontified nil 16036 . 16040) (nil fontified nil 16035 . 16036) (nil fontified nil 16029 . 16035) (nil fontified nil 16028 . 16029) (nil fontified nil 16012 . 16028) (nil fontified nil 16011 . 16012) (nil fontified nil 16010 . 16011) (nil fontified nil 16008 . 16010) (nil fontified nil 16007 . 16008) (16007 . 16191)) nil (25257 43434 493963 142000) 0 nil])
+nil

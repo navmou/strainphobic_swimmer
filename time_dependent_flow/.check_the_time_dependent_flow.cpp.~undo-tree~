@@ -1,0 +1,6 @@
+(undo-tree-save-format-version . 1)
+"b5eeb2f509292c78d50458dab53826111f709fd0"
+[nil nil nil nil (25246 12685 929229 964000) 0 nil]
+([nil nil ((#("// uys is given as UXS because of transposing" 0 1 (fontified t face font-lock-comment-delimiter-face c-in-sws t c-is-sws t) 1 3 (fontified t face font-lock-comment-delimiter-face c-in-sws t) 3 45 (fontified t face font-lock-comment-face c-in-sws t)) . 6371) (undo-tree-id1 . -45) (t 25246 8324 44677 0)) nil (25246 12685 929228 699000) 0 nil])
+([nil current ((#("// uxs is given as UYS because of transposing" 0 1 (c-in-sws t c-is-sws t fontified t face font-lock-comment-delimiter-face) 1 3 (c-in-sws t fontified t face font-lock-comment-delimiter-face) 3 45 (c-in-sws t fontified t face font-lock-comment-face)) . 6435) (undo-tree-id0 . -45)) nil (25246 12685 929224 3000) 0 nil])
+nil
